@@ -346,7 +346,7 @@ export function updateTokenVisuals(token, elevacao, gridSize, gridDistance) {
 
   // Criar uma linha conectando o chão ao token
   const line = new PIXI.Graphics();
-  line.lineStyle(2, 0x00ff00, 0.5);
+  line.lineStyle(2, 0x00cccc, 0.5);
   line.moveTo(              // vai para o centro do token
     token.x + token.h / 2,
     token.y + token.h / 2
