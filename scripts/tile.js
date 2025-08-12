@@ -21,14 +21,7 @@ async function handleRenderTileConfig(app, html, data) {
     offsetX: app.object.getFlag(MODULE_ID, 'offsetX') ?? 0,
     offsetY: app.object.getFlag(MODULE_ID, 'offsetY') ?? 0,
     linkedWallIds: wallIdsString,
-    isOccluding: app.object.getFlag(MODULE_ID, 'OccludingTile') ?? false,
-  hideWhenDoorOpen: app.object.getFlag(MODULE_ID, 'hideWhenDoorOpen') ?? false,
-    occlusionAlpha: (() => {
-      const v = app.object.getFlag(MODULE_ID, 'OcclusionAlpha');
-      if (v === undefined || v === null || Number.isNaN(Number(v))) return 1;
-      const n = Math.max(0, Math.min(1, Number(v)));
-      return Math.round(n * 100) / 100;
-    })()
+    isOccluding: app.object.getFlag(MODULE_ID, 'OccludingTile') ?? false
   });
 
   // Adiciona a nova aba ao menu
@@ -59,31 +52,15 @@ async function handleRenderTileConfig(app, html, data) {
   const flipCheckbox = html.find('input[name="flags.isometric-perspective.tokenFlipped"]');
   const linkedWallInput = html.find('input[name="flags.isometric-perspective.linkedWallIds"]');
   const occludingCheckbox = html.find('input[name="flags.isometric-perspective.OccludingTile"]');
-  const hideWhenDoorOpenCheckbox = html.find('input[name="flags.isometric-perspective.hideWhenDoorOpen"]');
-  const occlusionAlphaGroup = html.find('[data-occlusion-alpha]');
-  const occlusionAlphaInput = html.find('input[name="flags.isometric-perspective.OcclusionAlpha"]');
   
   isoTileCheckbox.prop("checked", app.object.getFlag(MODULE_ID, "isoTileDisabled"));
   flipCheckbox.prop("checked", app.object.getFlag(MODULE_ID, "tokenFlipped"));
   linkedWallInput.val(wallIdsString);
   occludingCheckbox.prop("checked", app.object.getFlag(MODULE_ID, "OccludingTile"));
-  hideWhenDoorOpenCheckbox.prop("checked", app.object.getFlag(MODULE_ID, "hideWhenDoorOpen"));
-  // Show/Hide the occlusion alpha slider depending on checkbox
-  const toggleOccAlpha = () => occlusionAlphaGroup.toggle(!!occludingCheckbox.prop('checked'));
-  toggleOccAlpha();
-  occludingCheckbox.on('change', toggleOccAlpha);
   
   // Adiciona listener para atualizar o valor exibido do slider
   html.find('.scale-slider').on('input', function() {
     html.find('.range-value').text(this.value);
-  });
-
-  // Live label update for occlusion alpha
-  html.find('.occlusion-alpha-slider').on('input', function() {
-    const val = Math.max(0, Math.min(1, Number(this.value)));
-    this.value = String(val);
-    const label = this.closest('.form-fields')?.querySelector('.range-value');
-    if (label) label.textContent = String(Math.round(val * 100) / 100);
   });
 
   
@@ -107,17 +84,6 @@ async function handleRenderTileConfig(app, html, data) {
     } else {
       await app.object.unsetFlag(MODULE_ID, "OccludingTile");
     }
-
-    if (html.find('input[name="flags.isometric-perspective.hideWhenDoorOpen"]').prop("checked")) {
-      await app.object.setFlag(MODULE_ID, "hideWhenDoorOpen", true);
-    } else {
-      await app.object.unsetFlag(MODULE_ID, "hideWhenDoorOpen");
-    }
-
-  // Persist OcclusionAlpha (clamped)
-  const occAlphaVal = Number(occlusionAlphaInput.val());
-  const occAlpha = Number.isFinite(occAlphaVal) ? Math.max(0, Math.min(1, occAlphaVal)) : 1;
-  await app.object.setFlag(MODULE_ID, 'OcclusionAlpha', occAlpha);
 
     // dynamictile.js linked wall logic
     const wallIdsValue = linkedWallInput.val();

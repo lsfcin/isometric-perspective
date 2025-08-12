@@ -1,4 +1,5 @@
 import { MODULE_ID, DEBUG_PRINT, FOUNDRY_VERSION } from './main.js';
+import { ISOMETRIC_CONST } from './consts.js';
 
 // Module state
 let alwaysVisibleContainer;
@@ -126,6 +127,40 @@ export function registerDynamicTileConfig() {
         else clearHoverOutline(token);
     });
 
+    // Tile selection hooks: draw selection rectangle + handle above the tile when selected
+    Hooks.on('controlTile', (tile, controlled) => {
+        try {
+            if (controlled) drawTileSelectionOverlay(tile);
+            else clearTileSelectionOverlay(tile);
+            // keep the hover layer on top
+            if (hoverLayer?.parent === canvas.stage) {
+                canvas.stage.removeChild(hoverLayer);
+                canvas.stage.addChild(hoverLayer);
+            }
+        } catch {}
+    });
+    Hooks.on('refreshTile', (tile) => {
+        try {
+            if (tile?.controlled) {
+                // redraw to update position if tile moved/resized
+                clearTileSelectionOverlay(tile);
+                drawTileSelectionOverlay(tile);
+            }
+        } catch {}
+    });
+    Hooks.on('updateTile', (tileDocument) => {
+        try {
+            const tile = canvas.tiles.get(tileDocument.id);
+            if (tile?.controlled) {
+                clearTileSelectionOverlay(tile);
+                drawTileSelectionOverlay(tile);
+            }
+        } catch {}
+    });
+    Hooks.on('deleteTile', (tile) => {
+        try { clearTileSelectionOverlay(tile); } catch {}
+    });
+
     // Other hooks
     Hooks.on('sightRefresh', () => {
         if (canvas.ready && alwaysVisibleContainer) updateAlwaysVisibleElements();
@@ -202,7 +237,24 @@ function cloneTileSprite(tilePlaceable, walls, asOccluder = false) {
     sprite.position.set(mesh.position.x, mesh.position.y);
     sprite.anchor.set(mesh.anchor.x, mesh.anchor.y);
     sprite.angle = mesh.angle;
-    sprite.scale.set(mesh.scale.x, mesh.scale.y);
+    // Preserve original image aspect and scale for isometric tiles (use only isoScale; ignore rectangle distortion)
+    try {
+        const isoDisabled = !!tilePlaceable?.document?.getFlag(MODULE_ID, 'isoTileDisabled');
+        if (!isoDisabled) {
+            const sx = Number(mesh.scale.x) || 0;
+            const docW = Number(tilePlaceable?.document?.width) || 0;
+            const texW = Number(mesh?.texture?.width) || 0;
+            const signX = Math.sign(sx) || 1;
+            const signY = Math.sign(Number(mesh.scale.y) || 1) || 1;
+            // From transform.js: mesh.scale.x = (docW / texW) * isoScale
+            const isoScale = (sx !== 0 && docW > 0 && texW > 0) ? Math.abs(sx) * (texW / docW) : Math.abs(sx) || 1;
+            sprite.scale.set(isoScale * signX, isoScale * ISOMETRIC_CONST.ratio * signY);
+        } else {
+            sprite.scale.set(mesh.scale.x, mesh.scale.y);
+        }
+    } catch {
+        sprite.scale.set(mesh.scale.x, mesh.scale.y);
+    }
     // Base alpha uses the document alpha; when asOccluder, multiply by OcclusionAlpha
     const tileDocAlpha = typeof tilePlaceable?.document?.alpha === 'number' ? tilePlaceable.document.alpha : 1;
     const occAlpha = asOccluder ? clamp01(tilePlaceable?.document?.getFlag(MODULE_ID, 'OcclusionAlpha') ?? 1) : 1;
@@ -687,4 +739,51 @@ function updateHoverOutlinePosition(token) {
     const name = `HoverOutline-${token.id}`;
     const existing = hoverLayer.getChildByName(name);
     if (existing) existing.position.set(token.center.x, token.center.y);
+}
+
+// --------------- Tile grid triangle overlay (on selection) ---------------
+function drawTileSelectionOverlay(tile) {
+    try {
+        if (!hoverLayer || !tile) return;
+        const name = `TileSelection-${tile.id}`;
+        const existing = hoverLayer.getChildByName(name);
+        if (existing) hoverLayer.removeChild(existing);
+
+        const g = new PIXI.Graphics();
+        g.name = name;
+        g.eventMode = 'passive';
+        g.zIndex = 9_999_999; // just under hover outlines
+
+        const x = tile.document.x;
+        const y = tile.document.y;
+        const w = tile.document.width;
+        const h = tile.document.height;
+
+        // Orange rectangle lines
+        g.lineStyle(2, 0xffa500, 0.9);
+        g.drawRect(x, y, w, h);
+
+        // Small manipulation circle in the bottom-right corner
+        const r = 6;
+        const cx = x + w;
+        const cy = y + h;
+        g.beginFill(0xffa500, 0.9);
+        g.drawCircle(cx, cy, r);
+        g.endFill();
+
+        hoverLayer.addChild(g);
+        if (hoverLayer?.parent === canvas.stage) {
+            canvas.stage.removeChild(hoverLayer);
+            canvas.stage.addChild(hoverLayer);
+        }
+    } catch (e) {
+        console.error('Tile selection overlay draw error:', e);
+    }
+}
+
+function clearTileSelectionOverlay(tile) {
+    if (!hoverLayer || !tile) return;
+    const name = `TileSelection-${tile.id}`;
+    const existing = hoverLayer.getChildByName(name);
+    if (existing) hoverLayer.removeChild(existing);
 }
