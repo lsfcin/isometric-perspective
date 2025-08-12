@@ -21,7 +21,8 @@ async function handleRenderTileConfig(app, html, data) {
     offsetX: app.object.getFlag(MODULE_ID, 'offsetX') ?? 0,
     offsetY: app.object.getFlag(MODULE_ID, 'offsetY') ?? 0,
     linkedWallIds: wallIdsString,
-    isOccluding: app.object.getFlag(MODULE_ID, 'OccludingTile') ?? false
+    isOccluding: app.object.getFlag(MODULE_ID, 'OccludingTile') ?? false,
+    occlusionAlpha: app.object.getFlag(MODULE_ID, 'OcclusionAlpha') ?? 1
   });
 
   // Adiciona a nova aba ao menu
@@ -35,38 +36,43 @@ async function handleRenderTileConfig(app, html, data) {
   // Update the offset fine adjustment button
   updateAdjustOffsetButton(html);
 
-  // keeps the window height on auto
-  /*
-  const sheet = html.closest('.sheet');
-  if (sheet.length) {
-    sheet.css({ 'height': 'auto', 'min-height': '0' });
-    const windowContent = sheet.find('.window-content');
-    if (windowContent.length) {
-      windowContent.css({ 'height': 'auto', 'overflow': 'visible' });
-    }
-  }
-  */
-
   // Inicializa os valores dos controles
   const isoTileCheckbox = html.find('input[name="flags.isometric-perspective.isoTileDisabled"]');
   const flipCheckbox = html.find('input[name="flags.isometric-perspective.tokenFlipped"]');
   const linkedWallInput = html.find('input[name="flags.isometric-perspective.linkedWallIds"]');
   const occludingCheckbox = html.find('input[name="flags.isometric-perspective.OccludingTile"]');
+  const occAlphaSlider = html.find('input[name="flags.isometric-perspective.OcclusionAlpha"]');
+  const occAlphaGroup = html.find('.occlusion-alpha-group');
   
   isoTileCheckbox.prop("checked", app.object.getFlag(MODULE_ID, "isoTileDisabled"));
   flipCheckbox.prop("checked", app.object.getFlag(MODULE_ID, "tokenFlipped"));
   linkedWallInput.val(wallIdsString);
   occludingCheckbox.prop("checked", app.object.getFlag(MODULE_ID, "OccludingTile"));
-  
-  // Adiciona listener para atualizar o valor exibido do slider
-  html.find('.scale-slider').on('input', function() {
-    html.find('.range-value').text(this.value);
+
+  // Occlusion alpha live UI (update only the adjacent value span)
+  occAlphaSlider.on('input change', function() {
+    const container = $(this).closest('.form-fields');
+    container.find('.range-value').text(this.value);
+  });
+  // Show/hide occlusion alpha group based on occluding checkbox
+  const syncOccGroup = () => {
+    const checked = occludingCheckbox.prop('checked');
+    occAlphaGroup.css('display', checked ? 'flex' : 'none');
+  };
+  syncOccGroup();
+  occludingCheckbox.on('change', () => {
+    syncOccGroup();
   });
 
-  
+  // Live update for Isometric Scale slider label near that slider only
+  const scaleSlider = html.find('input[name="flags.isometric-perspective.scale"]');
+  scaleSlider.on('input change', function() {
+    const container = $(this).closest('.form-fields');
+    container.find('.range-value').text(this.value);
+  });
+
   // Handler para o formulário de submit
   html.find('form').on('submit', async (event) => {
-    // Se o valor do checkbox é true, atualiza as flags com os novos valores
     if (html.find('input[name="flags.isometric-perspective.isoTileDisabled"]').prop("checked")) {
       await app.object.setFlag(MODULE_ID, "isoTileDisabled", true);
     } else {
@@ -85,10 +91,15 @@ async function handleRenderTileConfig(app, html, data) {
       await app.object.unsetFlag(MODULE_ID, "OccludingTile");
     }
 
+    // Persist occlusion alpha
+    if (occAlphaSlider.length) {
+      const v = Math.max(0, Math.min(1, parseFloat(occAlphaSlider.val())));
+      await app.object.setFlag(MODULE_ID, 'OcclusionAlpha', v);
+    }
+
     // dynamictile.js linked wall logic
     const wallIdsValue = linkedWallInput.val();
     if (wallIdsValue) {
-      // Convertemos a string em array antes de salvar
       const wallIdsArray = wallIdsValue.split(',').map(id => id.trim()).filter(id => id);
       await app.object.setFlag(MODULE_ID, 'linkedWallIds', wallIdsArray);
     } else {
@@ -96,52 +107,37 @@ async function handleRenderTileConfig(app, html, data) {
     }
   });
 
-  
   // dynamictile.js event listeners for the buttons
   html.find('button.select-wall').click(() => {
-    // Minimiza a janela e muda a camada selecionada para a WallLayer
     Object.values(ui.windows).filter(w => w instanceof TileConfig).forEach(j => j.minimize());
     canvas.walls.activate();
 
     Hooks.once('controlWall', async (wall) => {
       const selectedWallId = wall.id.toString();
       const currentWallIds = app.object.getFlag(MODULE_ID, 'linkedWallIds') || [];
-      
-      // Adiciona o novo ID apenas se ele ainda não estiver na lista
       if (!currentWallIds.includes(selectedWallId)) {
         const newWallIds = [...currentWallIds, selectedWallId];
         await app.object.setFlag(MODULE_ID, 'linkedWallIds', newWallIds);
         html.find('input[name="flags.isometric-perspective.linkedWallIds"]').val(newWallIds.join(', '));
       }
-
-      // Retorna a janela a posição original e ativa a camada TileLayer
       Object.values(ui.windows).filter(w => w instanceof TileConfig).forEach(j => j.maximize());
       canvas.tiles.activate();
-
-      // Keep the tab selected
       requestAnimationFrame(() => {
         const tabs = app._tabs[0];
         if (tabs) tabs.activate("isometric");
       });
-      
     });
   });
 
   html.find('button.clear-wall').click(async () => {
     await app.object.setFlag(MODULE_ID, 'linkedWallIds', []);
     html.find('input[name="flags.isometric-perspective.linkedWallIds"]').val('');
-
-    // Keep the tab selected
     requestAnimationFrame(() => {
       const tabs = app._tabs[0];
       if (tabs) tabs.activate("isometric");
     });
   });
-
 }
-
-
-
 
 // Hooks.on("createTile")
 function handleCreateTile(tileDocument) {
