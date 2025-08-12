@@ -7,6 +7,7 @@ let tokensLayer;
 let tilesOpacity = 1.0;
 let tokensOpacity = 1.0;
 let lastControlledToken = null;
+let hoverLayer = null;
 
 export function registerDynamicTileConfig() {
     const enableOcclusionDynamicTile = game.settings.get(MODULE_ID, 'enableOcclusionDynamicTile');
@@ -34,6 +35,15 @@ export function registerDynamicTileConfig() {
         alwaysVisibleContainer.addChild(tokensLayer);
 
         canvas.stage.addChild(alwaysVisibleContainer);
+        // Create top-most hover layer for outlines that must ignore occlusion
+        if (hoverLayer) {
+            canvas.stage.removeChild(hoverLayer);
+            hoverLayer.destroy({ children: true });
+        }
+        hoverLayer = new PIXI.Container();
+        hoverLayer.name = 'HoverHighlightLayer';
+        hoverLayer.eventMode = 'passive';
+        canvas.stage.addChild(hoverLayer);
         canvas.stage.sortChildren();
     });
 
@@ -44,6 +54,11 @@ export function registerDynamicTileConfig() {
         alwaysVisibleContainer = null;
         tilesLayer = null;
         tokensLayer = null;
+        if (hoverLayer) {
+            canvas.stage.removeChild(hoverLayer);
+            hoverLayer.destroy({ children: true });
+            hoverLayer = null;
+        }
     });
 
     // Refresh triggers
@@ -82,12 +97,22 @@ export function registerDynamicTileConfig() {
             lastControlledToken = canvas.tokens.get(tokenDocument.id);
         }
         updateAlwaysVisibleElements();
+        const tok = canvas.tokens.get(tokenDocument.id);
+        if (tok) updateHoverOutlinePosition(tok);
     });
     Hooks.on('deleteToken', (token) => {
         if (lastControlledToken && token.id === lastControlledToken.id) lastControlledToken = null;
         updateAlwaysVisibleElements();
+        clearHoverOutline(token);
     });
-    Hooks.on('refreshToken', () => updateAlwaysVisibleElements());
+    Hooks.on('refreshToken', (token) => {
+        updateAlwaysVisibleElements();
+        if (token) updateHoverOutlinePosition(token);
+    });
+    Hooks.on('hoverToken', (token, hovered) => {
+        if (hovered) drawHoverOutline(token);
+        else clearHoverOutline(token);
+    });
 
     // Other hooks
     Hooks.on('sightRefresh', () => {
@@ -228,6 +253,15 @@ function updateAlwaysVisibleElements() {
     if (!controlled) return;
 
     const plan = computeVisibilityDrawPlan(controlled);
+            // Keep overlay above any other stage children (e.g., height lines/shadows added later)
+            try {
+                if (alwaysVisibleContainer?.parent === canvas.stage) {
+                    canvas.stage.removeChild(alwaysVisibleContainer);
+                    canvas.stage.addChild(alwaysVisibleContainer);
+                }
+            } catch (e) {
+                // no-op
+            }
 
     for (const t of plan.tiles) {
         if (!t?.sprite) continue;
@@ -252,6 +286,13 @@ function updateAlwaysVisibleElements() {
     // Ensure tiles use insertion order only (no zIndex sorting)
     tilesLayer.sortableChildren = false;
     tokensLayer.sortableChildren = true;
+    // Keep hover layer as the top-most
+    try {
+        if (hoverLayer?.parent === canvas.stage) {
+            canvas.stage.removeChild(hoverLayer);
+            canvas.stage.addChild(hoverLayer);
+        }
+    } catch (e) {}
 }
 
 function computeVisibilityDrawPlan(controlledToken) {
@@ -333,20 +374,20 @@ function addDebugOverlays(plan) {
         const tileStyle = new PIXI.TextStyle({ fontSize: 12, fill: '#00ffff', stroke: '#000000', strokeThickness: 3 });
         const tokenStyle = new PIXI.TextStyle({ fontSize: 12, fill: '#ffff00', stroke: '#000000', strokeThickness: 3 });
 
-        for (const t of plan.debugTiles || []) {
-            const txt = new PIXI.Text(`T(${t.gx},${t.gy})`, tileStyle);
-            txt.anchor.set(0.5, 1);
-            txt.position.set(t.px, t.py - 4);
-            txt.zIndex = 100000;
-            txt.eventMode = 'passive';
-            tokensLayer.addChild(txt);
-        }
+            for (const t of plan.debugTiles || []) {
+                const txt = new PIXI.Text(`T(${t.gx},${t.gy})`, tileStyle);
+                txt.anchor.set(0.5, 1);
+                txt.position.set(t.px, t.py - 4);
+                txt.zIndex = (t.gx ?? 0) + (t.gy ?? 0);
+                txt.eventMode = 'passive';
+                tokensLayer.addChild(txt);
+            }
 
         for (const k of plan.debugTokens || []) {
             const txt = new PIXI.Text(`K(${k.gx},${k.gy})`, tokenStyle);
             txt.anchor.set(0.5, 1);
             txt.position.set(k.px, k.py - 16);
-            txt.zIndex = 100000;
+            txt.zIndex = (k.gx ?? 0) + (k.gy ?? 0);
             txt.eventMode = 'passive';
             tokensLayer.addChild(txt);
         }
@@ -516,4 +557,79 @@ function selectNearestGridOccluder(tiles, gx, gy) {
         }
     }
     return best;
+}
+
+// Color helpers
+function colorStringToNumber(str, fallback = 0x9b59b6) { // purple fallback
+    try {
+        if (typeof str === 'string' && str.startsWith('#') && (str.length === 7 || str.length === 4)) {
+            // Expand #rgb to #rrggbb
+            if (str.length === 4) {
+                const r = str[1], g = str[2], b = str[3];
+                str = `#${r}${r}${g}${g}${b}${b}`;
+            }
+            return Number.parseInt(str.slice(1), 16);
+        }
+    } catch {}
+    return fallback;
+}
+
+function getTokenOwnerColorNumber(token, fallback = 0x9b59b6) {
+    try {
+        const owners = game.users?.players?.filter(u => token?.actor?.testUserPermission?.(u, CONST.DOCUMENT_OWNERSHIP_LEVELS.OWNER)) || [];
+        const chosen = owners.find(u => u.active) || owners[0];
+        if (chosen?.color) return colorStringToNumber(chosen.color, fallback);
+    } catch {}
+    // Fallback to current user color if available
+    if (game.user?.color) return colorStringToNumber(game.user.color, fallback);
+    return fallback;
+}
+
+// ---------------- Hover outline (ignores occlusion) ----------------
+function drawHoverOutline(token) {
+    try {
+        if (!hoverLayer || !token) return;
+        const name = `HoverOutline-${token.id}`;
+        // Remove existing outline for this token
+        const existing = hoverLayer.getChildByName(name);
+        if (existing) hoverLayer.removeChild(existing);
+
+        const grid = canvas.grid?.size || 100;
+        const wUnits = Math.max(1, Number(token.document?.width) || 1);
+        const hUnits = Math.max(1, Number(token.document?.height) || 1);
+        const radius = (grid * (wUnits + hUnits) / 2) * 0.45; // slightly inside the footprint
+
+        const g = new PIXI.Graphics();
+        g.name = name;
+        g.eventMode = 'passive';
+        g.zIndex = 10_000_000; // top inside hover layer
+    // Soft glow border using token owner's color (fallback to purple)
+    const col = getTokenOwnerColorNumber(token);
+        g.lineStyle(4, 0x000000, 0.4);
+        g.drawCircle(0, 0, radius);
+        g.lineStyle(2, col, 1.0);
+        g.drawCircle(0, 0, radius);
+        g.position.set(token.center.x, token.center.y);
+
+        hoverLayer.addChild(g);
+        // Ensure on top
+        canvas.stage.removeChild(hoverLayer);
+        canvas.stage.addChild(hoverLayer);
+    } catch (e) {
+        console.error('Hover outline error:', e);
+    }
+}
+
+function clearHoverOutline(token) {
+    if (!hoverLayer || !token) return;
+    const name = `HoverOutline-${token.id}`;
+    const existing = hoverLayer.getChildByName(name);
+    if (existing) hoverLayer.removeChild(existing);
+}
+
+function updateHoverOutlinePosition(token) {
+    if (!hoverLayer || !token) return;
+    const name = `HoverOutline-${token.id}`;
+    const existing = hoverLayer.getChildByName(name);
+    if (existing) existing.position.set(token.center.x, token.center.y);
 }
