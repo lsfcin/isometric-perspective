@@ -346,18 +346,7 @@ export function updateTokenVisuals(token, elevacao, gridSize, gridDistance) {
 
   // Criar uma linha conectando o chão ao token
   const line = new PIXI.Graphics();
-  // Use token owner's color or purple fallback for height line
-  let ownerColor = 0x9b59b6;
-  try {
-    const owners = game.users?.players?.filter(u => token?.actor?.testUserPermission?.(u, CONST.DOCUMENT_OWNERSHIP_LEVELS.OWNER)) || [];
-    const chosen = owners.find(u => u.active) || owners[0];
-    const str = chosen?.color || game.user?.color;
-    if (str) {
-      const hex = (typeof str === 'string' && str.startsWith('#')) ? parseInt(str.slice(1).length===3 ? str.slice(1).split('').map(c=>c+c).join('') : str.slice(1), 16) : null;
-      if (Number.isFinite(hex)) ownerColor = hex;
-    }
-  } catch {}
-  line.lineStyle(2, ownerColor, 0.8);
+  line.lineStyle(2, 0x00cccc, 0.5);
   line.moveTo(              // vai para o centro do token
     token.x + token.h / 2,
     token.y + token.h / 2

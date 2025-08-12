@@ -9,6 +9,12 @@ let tokensOpacity = 1.0;
 let lastControlledToken = null;
 let hoverLayer = null;
 
+function clamp01(n) {
+    const v = Number(n);
+    if (!Number.isFinite(v)) return 1;
+    return Math.max(0, Math.min(1, v));
+}
+
 export function registerDynamicTileConfig() {
     const enableOcclusionDynamicTile = game.settings.get(MODULE_ID, 'enableOcclusionDynamicTile');
     const worldIsometricFlag = game.settings.get(MODULE_ID, 'worldIsometricFlag');
@@ -71,6 +77,8 @@ export function registerDynamicTileConfig() {
     // Tile hooks
     Hooks.on('createTile', (tile) => {
         tile.setFlag(MODULE_ID, 'linkedWallIds', []);
+        // Default occlusion overlay alpha to 1 (no extra dimming)
+        try { tile.setFlag(MODULE_ID, 'OcclusionAlpha', 1); } catch {}
     });
     Hooks.on('updateTile', async (tileDocument, change) => {
         if ('flags' in change && MODULE_ID in change.flags) {
@@ -78,6 +86,10 @@ export function registerDynamicTileConfig() {
             if ('linkedWallIds' in currentFlags) {
                 const validArray = ensureWallIdsArray(currentFlags.linkedWallIds);
                 await tileDocument.setFlag(MODULE_ID, 'linkedWallIds', validArray);
+            }
+            if ('OcclusionAlpha' in currentFlags) {
+                const v = clamp01(currentFlags.OcclusionAlpha);
+                await tileDocument.setFlag(MODULE_ID, 'OcclusionAlpha', v);
             }
         }
         updateAlwaysVisibleElements();
@@ -183,7 +195,7 @@ export function updateTokensOpacity(value) {
 export function increaseTokensOpacity() { updateTokensOpacity(tokensOpacity + 0.1); }
 export function decreaseTokensOpacity() { updateTokensOpacity(tokensOpacity - 0.1); }
 
-function cloneTileSprite(tilePlaceable, walls) {
+function cloneTileSprite(tilePlaceable, walls, asOccluder = false) {
     const mesh = tilePlaceable?.mesh;
     if (!mesh) return null;
         const sprite = new PIXI.Sprite(mesh.texture);
@@ -196,10 +208,12 @@ function cloneTileSprite(tilePlaceable, walls) {
         ? walls.some(wall => wall && (wall.document.door === 1 || wall.document.door === 2) && wall.document.ds === 1)
         : false;
     if (hasClosedDoor) return null;
-    // Respect per-tile opacity from document and multiply by layer opacity
+    // Base alpha uses the document alpha; when asOccluder, multiply by OcclusionAlpha
     const tileDocAlpha = typeof tilePlaceable?.document?.alpha === 'number' ? tilePlaceable.document.alpha : 1;
-    sprite.baseAlpha = tileDocAlpha;
-    sprite.alpha = tileDocAlpha * tilesOpacity;
+    const occAlpha = asOccluder ? clamp01(tilePlaceable?.document?.getFlag(MODULE_ID, 'OcclusionAlpha') ?? 1) : 1;
+    const base = tileDocAlpha * occAlpha;
+    sprite.baseAlpha = base;
+    sprite.alpha = base * tilesOpacity;
         sprite.opacityGroup = 'tiles';
     sprite.eventMode = 'passive';
     sprite.originalTile = tilePlaceable;
@@ -278,6 +292,23 @@ function updateAlwaysVisibleElements() {
         tokensLayer.addChild(oc.sprite);
     }
 
+    // Hide/show original occluding tiles: if a tile occludes the controlled token, hide its original mesh
+    try {
+        const hideSet = new Set(plan.hideOriginalTileIds || []);
+        for (const tile of canvas.tiles.placeables) {
+            if (!tile?.mesh) continue;
+            const isOccluding = !!tile.document?.getFlag(MODULE_ID, 'OccludingTile');
+            if (!isOccluding) continue;
+            if (hideSet.has(tile.id)) {
+                tile.mesh.alpha = 0; // fully hidden on base canvas
+            } else {
+                // restore to document alpha
+                const baseAlpha = typeof tile.document?.alpha === 'number' ? tile.document.alpha : 1;
+                tile.mesh.alpha = baseAlpha;
+            }
+        }
+    } catch (e) { /* noop */ }
+
     // Debug overlays (coordinates), added last so they render on top
     addDebugOverlays(plan);
 
@@ -296,7 +327,7 @@ function updateAlwaysVisibleElements() {
 }
 
 function computeVisibilityDrawPlan(controlledToken) {
-    const plan = { tiles: [], tokens: [], occluders: [], debugTiles: [], debugTokens: [] };
+    const plan = { tiles: [], tokens: [], occluders: [], debugTiles: [], debugTokens: [], hideOriginalTileIds: [] };
 
         // Tiles that participate in grid occlusion are those with the 'Occluding Tokens' flag
         const occlusionTilesByFlag = canvas.tiles.placeables.filter(tile => {
@@ -313,55 +344,72 @@ function computeVisibilityDrawPlan(controlledToken) {
         return ida.localeCompare(idb);
     });
 
-    // Prepare tiles and their grid bottom-corner for later token occlusion checks
+    // Prepare tiles and collect grid corners
     const tileEntries = [];
-        for (const tile of tilesSorted) {
-            const walls = getLinkedWalls(tile);
-            const clonedSprite = cloneTileSprite(tile, walls);
-        if (clonedSprite) plan.tiles.push({ sprite: clonedSprite });
-
+    for (const tile of tilesSorted) {
+        const walls = getLinkedWalls(tile);
         const { gx: tgx, gy: tgy } = getTileBottomCornerGridXY(tile);
         // Collect debug info for tile bottom-corner grid coords
         plan.debugTiles.push({ gx: tgx, gy: tgy, px: tile.document.x, py: tile.document.y + tile.document.height });
         tileEntries.push({ tile, walls, gx: tgx, gy: tgy, depth: tgx + tgy });
     }
 
-            const controlledSprite = cloneTokenSprite(controlledToken.mesh);
-            if (controlledSprite) {
-                const { gx, gy } = getTokenGridXY(controlledToken);
-                const depth = gx + gy;
-                plan.tokens.push({ sprite: controlledSprite, z: depth });
-                // Debug info for controlled token
-                plan.debugTokens.push({ gx, gy, px: controlledToken.center.x, py: controlledToken.center.y });
-
-                // Grid-only occlusion: for every tile where (gx >= tx && gy <= ty), draw that tile above this token
-                const occludingTiles = tileEntries.filter(te => gx >= te.gx && gy <= te.gy);
-                    for (const te of occludingTiles) {
-                        const occ = cloneTileSprite(te.tile, te.walls);
-                    if (occ) plan.occluders.push({ sprite: occ, z: depth + 0.5 });
-                }
-            }
-
+    // Gather visible tokens (controlled + others visible from it)
+    const visibleTokens = [];
+    if (controlledToken?.mesh) {
+        visibleTokens.push(controlledToken);
+        const controlledSprite = cloneTokenSprite(controlledToken.mesh);
+        if (controlledSprite) {
+            const { gx, gy } = getTokenGridXY(controlledToken);
+            const depth = gx + gy;
+            plan.tokens.push({ sprite: controlledSprite, z: depth });
+            plan.debugTokens.push({ gx, gy, px: controlledToken.center.x, py: controlledToken.center.y });
+        }
+    }
     for (const token of canvas.tokens.placeables) {
         if (!token?.mesh) continue;
-        if (token.id === controlledToken.id) continue;
-        if (!canTokenSeeToken(controlledToken, token)) continue;
-
+        if (controlledToken && token.id === controlledToken.id) continue;
+        if (!controlledToken || canTokenSeeToken(controlledToken, token)) {
+            visibleTokens.push(token);
             const tokenSprite = cloneTokenSprite(token.mesh);
             if (!tokenSprite) continue;
+            const { gx, gy } = getTokenGridXY(token);
+            const depth = gx + gy;
+            plan.tokens.push({ sprite: tokenSprite, z: depth });
+            plan.debugTokens.push({ gx, gy, px: token.center.x, py: token.center.y });
+        }
+    }
 
-                const { gx, gy } = getTokenGridXY(token);
-                const depth = gx + gy;
-                plan.tokens.push({ sprite: tokenSprite, z: depth });
-                // Debug info for visible token
-                plan.debugTokens.push({ gx, gy, px: token.center.x, py: token.center.y });
+    // Create base tile clones; for tiles that occlude the controlled token, skip the base clone
+    // and rely on an occluder clone at the controlled token's depth to represent the full tile with OcclusionAlpha.
+    let controlledDepth = null;
+    let cGX = null, cGY = null;
+    if (controlledToken?.mesh) {
+        const g = getTokenGridXY(controlledToken);
+        cGX = g.gx; cGY = g.gy; controlledDepth = cGX + cGY;
+    }
+    for (const te of tileEntries) {
+        const occludesControlled = controlledToken ? (cGX >= te.gx && cGY <= te.gy) : false;
+        if (!occludesControlled) {
+            const clonedSprite = cloneTileSprite(te.tile, te.walls, false);
+            if (clonedSprite) plan.tiles.push({ sprite: clonedSprite });
+        } else {
+            // Represent the whole tile using an occluder clone at controlled token depth
+            const occ = cloneTileSprite(te.tile, te.walls, true);
+            if (occ && controlledDepth !== null) plan.occluders.push({ sprite: occ, z: controlledDepth + 0.5 });
+            plan.hideOriginalTileIds.push(te.tile.id);
+        }
+    }
 
-                // Grid-only occlusion for all qualifying tiles
-                const occludingTiles = tileEntries.filter(te => gx >= te.gx && gy <= te.gy);
-                    for (const te of occludingTiles) {
-                        const occ = cloneTileSprite(te.tile, te.walls);
-                    if (occ) plan.occluders.push({ sprite: occ, z: depth + 0.5 });
-                }
+    // Occluder clones on tokens layer (for proper stacking), only for tiles that actually occlude each token
+    for (const tk of visibleTokens) {
+        const { gx, gy } = getTokenGridXY(tk);
+        const depth = gx + gy;
+        const occludingTiles = tileEntries.filter(te => gx >= te.gx && gy <= te.gy);
+        for (const te of occludingTiles) {
+            const occ = cloneTileSprite(te.tile, te.walls, true);
+            if (occ) plan.occluders.push({ sprite: occ, z: depth + 0.5 });
+        }
     }
 
     return plan;
