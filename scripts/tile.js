@@ -53,38 +53,53 @@ async function handleRenderTileConfig(app, html, data) {
   // On Flip Tile toggle: invert Y offset and swap rectangle width/height; keep Isometric tab active
   flipCheckbox.on('change', async () => {
     try {
-  // Persist flip flag immediately so transform updates now
-  await app.object.setFlag(MODULE_ID, 'tokenFlipped', flipCheckbox.prop('checked'));
-
-      // Invert art offset Y input value
-      const offsetYEl = html.find('input[name="flags.isometric-perspective.offsetY"]');
-      const currentY = parseFloat(offsetYEl.val()) || 0;
-      offsetYEl.val((-currentY).toFixed(0));
-      offsetYEl.trigger('change');
-      // Persist the inverted offset to the document
-      await app.object.setFlag(MODULE_ID, 'offsetY', -currentY);
-    } catch {}
-
-    try {
-      // Swap width and height on the Tile Document to update the manipulation rectangle immediately
       const doc = app.object;
-      const w = Number(doc.width) || 0;
-      const h = Number(doc.height) || 0;
-      if (w || h) {
-        // Compensate Y so the bottom edge stays in place: y' = y + (oldHeight - oldWidth)
-        const newY = Number(doc.y) + (h - w);
-        await doc.update({ width: h, height: w, y: newY });
-      }
-      // Reflect the swap in any width/height inputs present in the config
-      const widthInput = html.find('input[name="width"]');
-      const heightInput = html.find('input[name="height"]');
-      if (widthInput.length) widthInput.val(h);
-      if (heightInput.length) heightInput.val(w);
-      // Keep the Isometric tab active after the document refresh
-      requestAnimationFrame(() => {
-        const tabs = app._tabs && app._tabs[0];
-        if (tabs) tabs.activate('isometric');
-      });
+      const checked = flipCheckbox.prop('checked');
+
+  // Read current document values (authoritative) and compute flip around bottom-left
+  const offsetYEl = html.find('input[name="flags.isometric-perspective.offsetY"]');
+  const widthInput = html.find('input[name="width"]');
+  const heightInput = html.find('input[name="height"]');
+  const yInput = html.find('input[name="y"]');
+
+  const curOffY = Number(doc.getFlag(MODULE_ID, 'offsetY')) || 0;
+  const w = Number(doc.width) || 0;
+  const h = Number(doc.height) || 0;
+  const yVal = Number(doc.y) || 0;
+  const newY = yVal + (h - w);
+
+    // Single document update so Foundry rebuilds the native manipulation rectangle immediately
+  const update = {
+        width: h,
+        height: w,
+        y: newY,
+        flags: {
+          [MODULE_ID]: {
+            tokenFlipped: checked,
+    offsetY: -curOffY
+          }
+        }
+      };
+  await doc.update(update);
+
+      // Reflect the updated values in the current form manually
+  offsetYEl.val((-curOffY).toFixed(0));
+      offsetYEl.trigger('change');
+  if (widthInput.length) widthInput.val(h);
+  if (heightInput.length) heightInput.val(w);
+  if (yInput.length) yInput.val(Number.isFinite(newY) ? String(newY) : String(doc.y));
+
+  // Ensure the tile remains controlled so its frame is visible in the updated orientation
+  requestAnimationFrame(() => {
+    try {
+      const pl = doc.object;
+      if (pl?.control) pl.control({ releaseOthers: false, pan: false });
+    } catch {}
+  });
+
+      // Ensure the Isometric tab remains active without a visible switch
+      const tabs = app._tabs && app._tabs[0];
+      if (tabs) tabs.activate('isometric');
     } catch {}
   });
 

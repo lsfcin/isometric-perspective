@@ -253,7 +253,13 @@ function updateAlwaysVisibleElements() {
     if (!controlled) return;
 
     const plan = computeVisibilityDrawPlan(controlled);
-    // Do not reorder alwaysVisibleContainer to the top; overlay.js keeps the overlay layer on top.
+    // Keep the always-visible container near the top so clones are not buried under the grid
+    try {
+        if (alwaysVisibleContainer?.parent === canvas.stage) {
+            canvas.stage.removeChild(alwaysVisibleContainer);
+            canvas.stage.addChild(alwaysVisibleContainer);
+        }
+    } catch {}
 
     for (const t of plan.tiles) {
         if (!t?.sprite) continue;
@@ -272,7 +278,21 @@ function updateAlwaysVisibleElements() {
 
     // No drag/selection-specific mesh manipulation; occlusion plan controls hiding.
 
-    // Do not modify original tile mesh alpha; keep base tiles rendering as-is in isometric view
+    // Hide/show original occluding tiles: originals are hidden when represented by clones
+    try {
+        const hideSet = new Set(plan.hideOriginalTileIds || []);
+        for (const tile of canvas.tiles.placeables) {
+            if (!tile?.mesh) continue;
+            const isOccluding = !!tile.document?.getFlag(MODULE_ID, 'OccludingTile');
+            if (!isOccluding) continue;
+            if (hideSet.has(tile.id)) {
+                tile.mesh.alpha = 0; // fully hidden on base canvas
+            } else {
+                const baseAlpha = typeof tile.document?.alpha === 'number' ? tile.document.alpha : 1;
+                tile.mesh.alpha = baseAlpha;
+            }
+        }
+    } catch {}
 
     // Debug overlays (coordinates), added last so they render on top
     addDebugOverlays(plan);
@@ -311,8 +331,11 @@ function computeVisibilityDrawPlan(controlledToken) {
         const anyDoorOpen = Array.isArray(walls) && walls.some(w => (w?.document?.door === 1 || w?.document?.door === 2) && w?.document?.ds === 1);
         if (anyDoorOpen) {
             plan.hideOriginalTileIds.push(tile.id);
+            // Do not add any clones; tile becomes fully invisible
             continue;
         }
+        // Hide the original occluding tile mesh; we will represent via clones
+        plan.hideOriginalTileIds.push(tile.id);
         const { gx: tgx, gy: tgy } = getTileBottomCornerGridXY(tile);
         // Collect debug info for tile bottom-corner grid coords
         plan.debugTiles.push({ gx: tgx, gy: tgy, px: tile.document.x, py: tile.document.y + tile.document.height });
@@ -345,8 +368,6 @@ function computeVisibilityDrawPlan(controlledToken) {
         }
     }
 
-    // Do not create base tile clones. We will keep the original tile mesh visible unless a tile
-    // actually needs to occlude a token, in which case we add occluder clones and hide the original once.
     let controlledDepth = null;
     let cGX = null, cGY = null;
     if (controlledToken?.mesh) {
@@ -359,7 +380,10 @@ function computeVisibilityDrawPlan(controlledToken) {
             // Represent the whole tile using an occluder clone at controlled token depth
             const occ = cloneTileSprite(te.tile, te.walls, true);
             if (occ && controlledDepth !== null) plan.occluders.push({ sprite: occ, z: controlledDepth + 0.5 });
-            plan.hideOriginalTileIds.push(te.tile.id);
+        } else {
+            // For non-occluding tiles, place a base clone on the tiles layer
+            const clonedSprite = cloneTileSprite(te.tile, te.walls, false);
+            if (clonedSprite) plan.tiles.push({ sprite: clonedSprite });
         }
     }
 
@@ -370,13 +394,10 @@ function computeVisibilityDrawPlan(controlledToken) {
         const depth = gx + gy;
         const occludingTiles = tileEntries.filter(te => gx >= te.gx && gy <= te.gy);
         for (const te of occludingTiles) {
-            // If we already replaced the base tile for the controlled token with an occluder clone,
-            // don’t add a duplicate for that same token here.
-        if (controlledToken && tk.id === controlledToken.id && hideSet.has(te.tile.id)) continue;
+            // If we already added an occluder at controlled depth, skip duplication for the controlled token
+            if (controlledToken && tk.id === controlledToken.id && hideSet.has(te.tile.id)) continue;
             const occ = cloneTileSprite(te.tile, te.walls, true);
             if (occ) plan.occluders.push({ sprite: occ, z: depth + 0.5 });
-        // Mark this tile to hide its original since an occluder clone exists
-        hideSet.add(te.tile.id);
         }
     }
 
