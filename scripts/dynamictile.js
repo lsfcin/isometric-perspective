@@ -156,7 +156,10 @@ function cloneTileSprite(tile, walls) {
     sprite.anchor.set(tile.anchor.x, tile.anchor.y);
     sprite.angle = tile.angle;
     sprite.scale.set(tile.scale.x, tile.scale.y);
-    const hasClosedDoor = walls.some(wall => wall && (wall.document.door === 1 || wall.document.door === 2) && wall.document.ds === 1);
+    // If walls are provided, block visibility when any linked door is closed; if none provided, ignore wall gating
+    const hasClosedDoor = Array.isArray(walls) && walls.length > 0
+        ? walls.some(wall => wall && (wall.document.door === 1 || wall.document.door === 2) && wall.document.ds === 1)
+        : false;
     if (hasClosedDoor) return null;
     sprite.alpha = tile.alpha * tilesOpacity;
     sprite.eventMode = 'passive';
@@ -236,13 +239,13 @@ function updateAlwaysVisibleElements() {
 function computeVisibilityDrawPlan(controlledToken) {
     const plan = { tiles: [], tokens: [], occluders: [], debugTiles: [], debugTokens: [] };
 
-    const tilesWithLinkedWalls = canvas.tiles.placeables.filter(tile => {
-        const walls = getLinkedWalls(tile);
-        return walls.length > 0;
-    });
+        // Tiles that participate in grid occlusion are those with the 'Occluding Tokens' flag
+        const occlusionTilesByFlag = canvas.tiles.placeables.filter(tile => {
+            return !!tile?.document?.getFlag(MODULE_ID, 'OccludingTile');
+        });
 
     // Manual ordering only: respect TileDocument.sort; ignore elevation or any dynamic sort
-    const tilesSorted = [...tilesWithLinkedWalls].sort((a, b) => {
+        const tilesSorted = [...occlusionTilesByFlag].sort((a, b) => {
         const sa = typeof a.document?.sort === 'number' ? a.document.sort : 0;
         const sb = typeof b.document?.sort === 'number' ? b.document.sort : 0;
         if (sa !== sb) return sa - sb;
