@@ -344,7 +344,7 @@ function computeVisibilityDrawPlan(controlledToken) {
     for (const tile of tilesSorted) {
         const walls = getLinkedWalls(tile);
         // If any linked door is open, hide this tile entirely (original + clones)
-        const anyDoorOpen = Array.isArray(walls) && walls.some(w => (w?.document?.door === 1 || w?.document?.door === 2) && w?.document?.ds !== 1);
+    const anyDoorOpen = Array.isArray(walls) && walls.some(w => (w?.document?.door === 1 || w?.document?.door === 2) && w?.document?.ds === 1);
         if (anyDoorOpen) {
             plan.hideOriginalTileIds.push(tile.id);
             continue;
