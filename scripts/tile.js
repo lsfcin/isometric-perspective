@@ -50,6 +50,44 @@ async function handleRenderTileConfig(app, html, data) {
   linkedWallInput.val(wallIdsString);
   occludingCheckbox.prop("checked", app.object.getFlag(MODULE_ID, "OccludingTile"));
 
+  // On Flip Tile toggle: invert Y offset and swap rectangle width/height; keep Isometric tab active
+  flipCheckbox.on('change', async () => {
+    try {
+  // Persist flip flag immediately so transform updates now
+  await app.object.setFlag(MODULE_ID, 'tokenFlipped', flipCheckbox.prop('checked'));
+
+      // Invert art offset Y input value
+      const offsetYEl = html.find('input[name="flags.isometric-perspective.offsetY"]');
+      const currentY = parseFloat(offsetYEl.val()) || 0;
+      offsetYEl.val((-currentY).toFixed(0));
+      offsetYEl.trigger('change');
+      // Persist the inverted offset to the document
+      await app.object.setFlag(MODULE_ID, 'offsetY', -currentY);
+    } catch {}
+
+    try {
+      // Swap width and height on the Tile Document to update the manipulation rectangle immediately
+      const doc = app.object;
+      const w = Number(doc.width) || 0;
+      const h = Number(doc.height) || 0;
+      if (w || h) {
+        // Compensate Y so the bottom edge stays in place: y' = y + (oldHeight - oldWidth)
+        const newY = Number(doc.y) + (h - w);
+        await doc.update({ width: h, height: w, y: newY });
+      }
+      // Reflect the swap in any width/height inputs present in the config
+      const widthInput = html.find('input[name="width"]');
+      const heightInput = html.find('input[name="height"]');
+      if (widthInput.length) widthInput.val(h);
+      if (heightInput.length) heightInput.val(w);
+      // Keep the Isometric tab active after the document refresh
+      requestAnimationFrame(() => {
+        const tabs = app._tabs && app._tabs[0];
+        if (tabs) tabs.activate('isometric');
+      });
+    } catch {}
+  });
+
   // Occlusion alpha live UI (update only the adjacent value span)
   occAlphaSlider.on('input change', function() {
     const container = $(this).closest('.form-fields');

@@ -164,9 +164,11 @@ export function applyIsometricTransformation(object, isSceneIsometric) {
     //const sceneScale = canvas.scene.getFlag(MODULE_ID, "isometricScale") ?? 1;
     
   // Preserve original aspect ratio: use a uniform scale based on the larger side
-  const ratioX = (scaleX / originalWidth) || 0;
-  const ratioY = (scaleY / originalHeight) || 0;
-  const uniform = Math.max(ratioX, ratioY) * isoScale;
+  // Use the longest side of the manipulation rectangle relative to the longest side of the art.
+  // This keeps visual size stable even if width/height are swapped during Flip.
+  const rectLongest = Math.max(scaleX, scaleY) || 0;
+  const artLongest = Math.max(originalWidth, originalHeight) || 1;
+  const uniform = (rectLongest / artLongest) * isoScale;
   object.mesh.scale.set(uniform, uniform * ISOMETRIC_CONST.ratio);
     
     // Flip token horizontally, if the flag is active
