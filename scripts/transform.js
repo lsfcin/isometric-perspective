@@ -40,12 +40,12 @@ export function applyIsometricTransformation(object, isSceneIsometric) {
     return;
   }
   
-  // Disable isometric token projection, if the flag is active
-  let isoTileDisabled = object.document.getFlag(MODULE_ID, 'isoTileDisabled') ?? 0;
-  let isoTokenDisabled = object.document.getFlag(MODULE_ID, 'isoTokenDisabled') ?? 0;
-  if (isoTileDisabled || isoTokenDisabled) {
-    object.mesh.anchor.set(0.5, 0.5);  // This is set to make isometric anchor don't mess with non-iso scenes
-    return
+  // Disable isometric projection only when requested
+  const isoTileDisabled = object.document.getFlag(MODULE_ID, 'isoTileDisabled') ?? 0;
+  const isoTokenDisabled = object.document.getFlag(MODULE_ID, 'isoTokenDisabled') ?? 0;
+  if ((object instanceof Token && isoTokenDisabled) || (object instanceof Tile && isoTileDisabled)) {
+    object.mesh.anchor.set(0.5, 0.5);
+    return;
   }
   
   // Don't make transformation on the token or tile if the scene isn't isometric
@@ -163,11 +163,11 @@ export function applyIsometricTransformation(object, isSceneIsometric) {
   else if (object instanceof Tile) {
     //const sceneScale = canvas.scene.getFlag(MODULE_ID, "isometricScale") ?? 1;
     
-    // Apply the scale by maintaining the proportion of the original art
-    object.mesh.scale.set(
-      (scaleX / originalWidth) * isoScale,
-      (scaleY / originalHeight) * isoScale * ISOMETRIC_CONST.ratio
-    );
+  // Preserve original aspect ratio: use a uniform scale based on the larger side
+  const ratioX = (scaleX / originalWidth) || 0;
+  const ratioY = (scaleY / originalHeight) || 0;
+  const uniform = Math.max(ratioX, ratioY) * isoScale;
+  object.mesh.scale.set(uniform, uniform * ISOMETRIC_CONST.ratio);
     
     // Flip token horizontally, if the flag is active
     let scaleFlip = object.document.getFlag(MODULE_ID, 'tokenFlipped') ?? 0;
@@ -180,7 +180,7 @@ export function applyIsometricTransformation(object, isSceneIsometric) {
     // Defines the manual offset to center the tile
     let isoOffsets = cartesianToIso(offsetX, offsetY);
     
-    // Set tile's position
+  // Set tile's position (center at the rectangle center regardless of aspect)
     object.mesh.position.set(
       object.document.x + (scaleX / 2) + isoOffsets.x,
       object.document.y + (scaleY / 2) + isoOffsets.y

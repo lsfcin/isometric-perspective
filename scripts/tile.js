@@ -15,7 +15,8 @@ async function handleRenderTileConfig(app, html, data) {
 
   // Carrega o template HTML para a nova aba
   const tabHtml = await renderTemplate("modules/isometric-perspective/templates/tile-config.html", {
-    isoDisabled: app.object.getFlag(MODULE_ID, 'isoTileDisabled') ?? 1,
+  // Default should be unchecked/false so opening the config doesn't disable isometric tiles
+  isoDisabled: app.object.getFlag(MODULE_ID, 'isoTileDisabled') ?? 0,
     scale: app.object.getFlag(MODULE_ID, 'scale') ?? 1,
     isFlipped: app.object.getFlag(MODULE_ID, 'tokenFlipped') ?? false,
     offsetX: app.object.getFlag(MODULE_ID, 'offsetX') ?? 0,
@@ -156,14 +157,8 @@ function handleUpdateTile(tileDocument, updateData, options, userId) {
   
   const scene = tile.scene;
   const isSceneIsometric = scene.getFlag(MODULE_ID, "isometricEnabled");
-  
-  if (updateData.x !== undefined ||
-      updateData.y !== undefined ||
-      updateData.width !== undefined ||
-      updateData.height !== undefined ||
-      updateData.texture !== undefined) {
-    requestAnimationFrame(() => applyIsometricTransformation(tile, isSceneIsometric));
-  }
+  // Always reapply transform on any tile update to keep consistent isometric presentation
+  requestAnimationFrame(() => applyIsometricTransformation(tile, isSceneIsometric));
 }
 
 // Hooks.on("refreshTile")

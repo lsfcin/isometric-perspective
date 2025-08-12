@@ -186,25 +186,14 @@ function cloneTileSprite(tilePlaceable, walls, asOccluder = false) {
     const sprite = new PIXI.Sprite(mesh.texture);
     sprite.position.set(mesh.position.x, mesh.position.y);
     sprite.anchor.set(mesh.anchor.x, mesh.anchor.y);
+    // Match original mesh transforms so appearance never changes when toggling occlusion
     sprite.angle = mesh.angle;
-    // Preserve original image aspect and scale for isometric tiles (use only isoScale; ignore rectangle distortion)
     try {
-        const isoDisabled = !!tilePlaceable?.document?.getFlag(MODULE_ID, 'isoTileDisabled');
-        if (!isoDisabled) {
-            const sx = Number(mesh.scale.x) || 0;
-            const docW = Number(tilePlaceable?.document?.width) || 0;
-            const texW = Number(mesh?.texture?.width) || 0;
-            const signX = Math.sign(sx) || 1;
-            const signY = Math.sign(Number(mesh.scale.y) || 1) || 1;
-            // From transform.js: mesh.scale.x = (docW / texW) * isoScale
-            const isoScale = (sx !== 0 && docW > 0 && texW > 0) ? Math.abs(sx) * (texW / docW) : Math.abs(sx) || 1;
-            sprite.scale.set(isoScale * signX, isoScale * ISOMETRIC_CONST.ratio * signY);
-        } else {
-            sprite.scale.set(mesh.scale.x, mesh.scale.y);
-        }
-    } catch {
-        sprite.scale.set(mesh.scale.x, mesh.scale.y);
-    }
+        sprite.rotation = mesh.rotation;
+        if (mesh.skew) sprite.skew.set(mesh.skew.x, mesh.skew.y);
+    } catch {}
+    // Match the original mesh scale exactly for identical appearance
+    try { sprite.scale.set(mesh.scale.x, mesh.scale.y); } catch { sprite.scale.set(1, 1); }
     // Base alpha uses the document alpha; when asOccluder, multiply by OcclusionAlpha
     const tileDocAlpha = typeof tilePlaceable?.document?.alpha === 'number' ? tilePlaceable.document.alpha : 1;
     const occAlpha = asOccluder ? clamp01(tilePlaceable?.document?.getFlag(MODULE_ID, 'OcclusionAlpha') ?? 1) : 1;
@@ -283,21 +272,7 @@ function updateAlwaysVisibleElements() {
 
     // No drag/selection-specific mesh manipulation; occlusion plan controls hiding.
 
-    // Hide/show original occluding tiles: if a tile occludes (or is in plan hide list), hide its original mesh
-    try {
-        const hideSet = new Set(plan.hideOriginalTileIds || []);
-        for (const tile of canvas.tiles.placeables) {
-            if (!tile?.mesh) continue;
-            const isOccluding = !!tile.document?.getFlag(MODULE_ID, 'OccludingTile');
-            if (!isOccluding) continue;
-            if (hideSet.has(tile.id)) {
-                tile.mesh.alpha = 0;
-            } else {
-                const baseAlpha = typeof tile.document?.alpha === 'number' ? tile.document.alpha : 1;
-                tile.mesh.alpha = baseAlpha;
-            }
-        }
-    } catch (e) { /* noop */ }
+    // Do not modify original tile mesh alpha; keep base tiles rendering as-is in isometric view
 
     // Debug overlays (coordinates), added last so they render on top
     addDebugOverlays(plan);
@@ -333,13 +308,11 @@ function computeVisibilityDrawPlan(controlledToken) {
     for (const tile of tilesSorted) {
         const walls = getLinkedWalls(tile);
         // If any linked door is open, hide this tile entirely (original + clones)
-    const anyDoorOpen = Array.isArray(walls) && walls.some(w => (w?.document?.door === 1 || w?.document?.door === 2) && w?.document?.ds === 1);
+        const anyDoorOpen = Array.isArray(walls) && walls.some(w => (w?.document?.door === 1 || w?.document?.door === 2) && w?.document?.ds === 1);
         if (anyDoorOpen) {
             plan.hideOriginalTileIds.push(tile.id);
             continue;
         }
-    // Hide the original occluding tile mesh; we'll render it via clones for consistent opacity control
-    plan.hideOriginalTileIds.push(tile.id);
         const { gx: tgx, gy: tgy } = getTileBottomCornerGridXY(tile);
         // Collect debug info for tile bottom-corner grid coords
         plan.debugTiles.push({ gx: tgx, gy: tgy, px: tile.document.x, py: tile.document.y + tile.document.height });
@@ -372,8 +345,8 @@ function computeVisibilityDrawPlan(controlledToken) {
         }
     }
 
-    // Create base tile clones; for tiles that occlude the controlled token, skip the base clone
-    // and rely on an occluder clone at the controlled token's depth to represent the full tile with OcclusionAlpha.
+    // Do not create base tile clones. We will keep the original tile mesh visible unless a tile
+    // actually needs to occlude a token, in which case we add occluder clones and hide the original once.
     let controlledDepth = null;
     let cGX = null, cGY = null;
     if (controlledToken?.mesh) {
@@ -382,10 +355,7 @@ function computeVisibilityDrawPlan(controlledToken) {
     }
     for (const te of tileEntries) {
         const occludesControlled = controlledToken ? (cGX >= te.gx && cGY <= te.gy) : false;
-        if (!occludesControlled) {
-            const clonedSprite = cloneTileSprite(te.tile, te.walls, false);
-            if (clonedSprite) plan.tiles.push({ sprite: clonedSprite });
-        } else {
+        if (occludesControlled) {
             // Represent the whole tile using an occluder clone at controlled token depth
             const occ = cloneTileSprite(te.tile, te.walls, true);
             if (occ && controlledDepth !== null) plan.occluders.push({ sprite: occ, z: controlledDepth + 0.5 });
@@ -402,12 +372,16 @@ function computeVisibilityDrawPlan(controlledToken) {
         for (const te of occludingTiles) {
             // If we already replaced the base tile for the controlled token with an occluder clone,
             // don’t add a duplicate for that same token here.
-            if (controlledToken && tk.id === controlledToken.id && hideSet.has(te.tile.id)) continue;
+        if (controlledToken && tk.id === controlledToken.id && hideSet.has(te.tile.id)) continue;
             const occ = cloneTileSprite(te.tile, te.walls, true);
             if (occ) plan.occluders.push({ sprite: occ, z: depth + 0.5 });
+        // Mark this tile to hide its original since an occluder clone exists
+        hideSet.add(te.tile.id);
         }
     }
 
+    // Reflect the final hide set into the plan
+    plan.hideOriginalTileIds = Array.from(hideSet);
     return plan;
 }
 
