@@ -95,7 +95,7 @@ Hooks.on('getSceneControlButtons', (controls) => {
     title: 'Reordenar Tokens',
     icon: 'fas fa-sort-amount-down',
     onClick: () => {
-      // Se precisar reordenar todos os tokens, pode manter o código anterior
+  // If you need to reorder all tokens manually, keep the previous code
       const tokens = canvas.tokens.placeables;
       tokens.forEach(token => updateTokenSort(token));
     },

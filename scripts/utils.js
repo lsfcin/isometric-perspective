@@ -1,26 +1,25 @@
 import { MODULE_ID, DEBUG_PRINT, WORLD_ISO_FLAG } from './main.js';
 
-// Função auxiliar para converter coordenadas isométricas para cartesianas
+// Helper to convert isometric coordinates to cartesian
 export function isoToCartesian(isoX, isoY) {
-  const angle = Math.PI / 4; // 45 graus em radianos
+  const angle = Math.PI / 4; // 45 degrees in radians
   return {
     x: (isoX * Math.cos(angle) - isoY * Math.sin(angle)),
     y: (isoX * Math.sin(angle) + isoY * Math.cos(angle))
   };
 }
 
-// Função auxiliar para converter coordenadas cartesianas para isométricas
+// Helper to convert cartesian coordinates to isometric
 export function cartesianToIso(isoX, isoY) {
-  const angle = Math.PI / 4; // 45 graus em radianos
+  const angle = Math.PI / 4; // 45 degrees in radians
   return {
     x: (isoX * Math.cos(-angle) - isoY * Math.sin(-angle)),
     y: (isoX * Math.sin(-angle) + isoY * Math.cos(-angle))
   };
 }
 
-// Função auxiliar para calcular a menor diagonal do losango (distância vertical entre vértices)
+// Helper to compute the vertical distance between diamond vertices (short diagonal)
 export function calculateIsometricVerticalDistance(width, height) {
-  // Em uma projeção isométrica com rotação de 45°, a distância vertical
-  // entre os vértices é a altura do losango formado
+  // For 45° isometric projection, vertical distance between vertices is the diamond's height
   return Math.sqrt(2) * Math.min(width, height);
 }

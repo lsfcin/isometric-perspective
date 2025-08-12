@@ -2,8 +2,7 @@ import { MODULE_ID, DEBUG_PRINT, FOUNDRY_VERSION } from './main.js';
 import { cartesianToIso } from './utils.js';
 import { ISOMETRIC_CONST } from './consts.js';
 
-
-// Função principal que muda o canvas da cena
+// Main function that changes the scene canvas to isometric
 export function applyIsometricPerspective(scene, isSceneIsometric) {
   const isometricWorldEnabled = game.settings.get(MODULE_ID, "worldIsometricFlag");
   //const isoAngle = ISOMETRIC_TRUE_ROTATION;
@@ -22,25 +21,14 @@ export function applyIsometricPerspective(scene, isSceneIsometric) {
   }
 }
 
-
-
-// Função auxiliar que chama a função de transformação isométrica em todos os tokens e tiles da cena
-/*export function adjustAllTokensAndTilesForIsometric() {
-  canvas.tokens.placeables.forEach(token => applyIsometricTransformation(token, true));
-  canvas.tiles.placeables.forEach(tile => applyIsometricTransformation(tile, true));
-}*/
+// Helper: apply isometric transform to all tokens and tiles in the scene
 // Batch process to speed up this function
 export function adjustAllTokensAndTilesForIsometric() {
   const tokensAndTiles = [...canvas.tokens.placeables, ...canvas.tiles.placeables];
   tokensAndTiles.forEach(obj => applyIsometricTransformation(obj, true));
 }
 
-
-
-
-
-
-// Função que aplica a transformação isométrica para um token ou tile -------------------------------------------------
+// Apply isometric transformation for a token or tile -------------------------------------------------
 export function applyIsometricTransformation(object, isSceneIsometric) {
   // Don't make any transformation if the isometric module isn't active
   const isometricWorldEnabled = game.settings.get(MODULE_ID, "worldIsometricFlag");
@@ -59,7 +47,6 @@ export function applyIsometricTransformation(object, isSceneIsometric) {
     object.mesh.anchor.set(0.5, 0.5);  // This is set to make isometric anchor don't mess with non-iso scenes
     return
   }
-
   
   // Don't make transformation on the token or tile if the scene isn't isometric
   if (!isSceneIsometric) {
@@ -77,7 +64,7 @@ export function applyIsometricTransformation(object, isSceneIsometric) {
   object.mesh.skew.set(ISOMETRIC_CONST.reverseSkewX, ISOMETRIC_CONST.reverseSkewY);
   //object.mesh.anchor.set(isoAnchorX, isoAnchorY);
     
-  // recovers the object characteristics of the object (token/tile)
+  // Recover object characteristics (token/tile)
   let texture = object.texture;
   let originalWidth = texture.width;   // art width
   let originalHeight = texture.height; // art height
@@ -87,7 +74,6 @@ export function applyIsometricTransformation(object, isSceneIsometric) {
   // if Disable Auto-Scale checkbox is set, don't auto-scale tokens
   let isoScaleDisabled = object.document.getFlag(MODULE_ID, "isoScaleDisabled");
   if (isoScaleDisabled) scaleX = scaleY = 1;
-
   
   // elevation info
   let elevation = object.document.elevation;      // elevation from tokens and tiles
@@ -100,10 +86,6 @@ export function applyIsometricTransformation(object, isSceneIsometric) {
   // if module settings flag is not set, don't move art token
   let ElevationAdjustment = game.settings.get(MODULE_ID, "enableHeightAdjustment");
   if (!ElevationAdjustment) elevation = 0;    
-  
-  
-  
-  
   
   if (object instanceof Token) {
     let sx = 1; // standard x
@@ -175,19 +157,8 @@ export function applyIsometricTransformation(object, isSceneIsometric) {
       object.document.x + (scaleX * gridSize/2) + (scaleX * isoOffsets.x),
       object.document.y + (scaleX * gridSize/2) + (scaleX * isoOffsets.y)
     );
-    // original code
-    //object.mesh.position.set(
-      //object.document.x + (isoOffsets.x * scaleX),
-      //object.document.y + (isoOffsets.y * scaleY)
-    //);
   }
 
-  
-  
-  
-  
-  
-  
   // If the object is a tile
   else if (object instanceof Tile) {
     //const sceneScale = canvas.scene.getFlag(MODULE_ID, "isometricScale") ?? 1;
@@ -215,14 +186,9 @@ export function applyIsometricTransformation(object, isSceneIsometric) {
       object.document.y + (scaleY / 2) + isoOffsets.y
     );
   }
-  
 }
 
-
-
-
-
-// Função para transformar o background da cena
+// Transform the scene background
 export function applyBackgroundTransformation(scene, isSceneIsometric, shouldTransform) {
   if (!canvas?.primary?.background) {
     if (DEBUG_PRINT) console.warn("Background not found.");
@@ -235,7 +201,7 @@ export function applyBackgroundTransformation(scene, isSceneIsometric, shouldTra
   const scale = scene.getFlag(MODULE_ID, "isometricScale") ?? 1;
   
   if (isometricWorldEnabled && isSceneIsometric && shouldTransform) {
-    // Aplica rotação isométrica
+  // Apply isometric rotation
     background.rotation = ISOMETRIC_CONST.reverseRotation;
     background.skew.set(
       ISOMETRIC_CONST.reverseSkewX,
@@ -262,45 +228,21 @@ export function applyBackgroundTransformation(scene, isSceneIsometric, shouldTra
       (isoScene.width / 2) + paddingX + offsetX,
       (isoScene.height / 2) + paddingY + offsetY
     );
-    
-    // Handle foreground if it exists
-    /*if (canvas.environment.primary.foreground) {
-      const foreground = canvas.environment.primary.foreground;
-      foreground.anchor.set(0.5, 0.5);
-      foreground.transform.scale.set(1, 1);
-      foreground.transform.setFromMatrix(canvas.stage.transform.worldTransform.invert());
-      foreground.position.set(
-        (s.width / 2) + paddingX + (s.foreground?.offsetX || 0),
-        (s.height / 2) + paddingY + (s.foreground?.offsetY || 0)
-      );
-    }*/
-
   } else {
-    // Reset transformações
+    // Reset transforms
     background.rotation = 0;
     background.skew.set(0, 0);
-    //background.transform.scale.set(1, 1);
-    //background.anchor.set(0.5, 0.5);
-    //background.scale.set(1, 1);
-    //background.transform.position.set(canvas.scene.width/2, canvas.scene.height/2);
     
     if (DEBUG_PRINT) console.log("applyBackgroundTransformation RESET")
   }
 }
 
-
-
-
-
-
-
-
 // ----------------- Elevation -----------------
 
-// Manter registro de todos os containers visuais criados
+// Track all visual containers created
 const visualContainers = new Set();
 
-// Função para limpar todos os visuais
+// Clear all visuals
 export function clearAllVisuals() {
   for (const containerId of visualContainers) {
     const container = canvas.stage.getChildByName(containerId);
@@ -311,29 +253,29 @@ export function clearAllVisuals() {
   visualContainers.clear();
 }
 
-// Função para verificar se um token existe na cena atual
+// Check if a token exists in the current scene
 function isTokenInCurrentScene(tokenId) {
   return canvas.tokens.placeables.some(t => t.id === tokenId);
 }
 
 export function updateTokenVisuals(token, elevacao, gridSize, gridDistance) {
-  // Primeiro, remova qualquer representação visual existente
+  // First, remove any existing visual representation
   removeTokenVisuals(token);
 
-  // Se não há elevação ou a variável global está desativada, não cria visuais
+  // If there's no elevation or the global setting is off, don't create visuals
   const tokenVisuals = game.settings.get(MODULE_ID, "enableTokenVisuals");
   if (elevacao <= 0 || !tokenVisuals) return;
 
-  // Cria um novo container
+  // Create a new container
   const container = new PIXI.Container();
   container.name = `${token.id}-visuals`;
   container.interactive = false;
   container.interactiveChildren = false;
   
-  // Registrar o container
+  // Register the container
   visualContainers.add(container.name);
 
-  // Criar uma sombra circular no chão
+  // Create a circular shadow on the ground
   const shadow = new PIXI.Graphics();
   shadow.beginFill(0x000000, 0.3);
   shadow.drawCircle(0, 0, (canvas.grid.size/2) * (token.h/canvas.grid.size));
@@ -344,20 +286,20 @@ export function updateTokenVisuals(token, elevacao, gridSize, gridDistance) {
   );
   container.addChild(shadow);
 
-  // Criar uma linha conectando o chão ao token
+  // Create a line connecting the ground to the token
   const line = new PIXI.Graphics();
   line.lineStyle(2, 0x00cccc, 0.5);
   line.moveTo(              // vai para o centro do token
     token.x + token.h / 2,
     token.y + token.h / 2
   ).lineTo(                 // desenha uma linha de onde moveu para a próxima posição
-    //centraliza no token + posiciona no cartesiano diretamente, porque eu preciso somente de uma linha na diagonal
+    // center on token + position on cartesian directly (we need only a diagonal line)
     (token.x + token.h/2) + (elevacao * (gridSize/gridDistance)),
     (token.y + token.h/2) - (elevacao * (gridSize/gridDistance))
   );
   container.addChild(line);
 
-  // Adicionar o container ao canvas
+  // Add the container to canvas
   canvas.stage.addChild(container);
 }
 
@@ -377,11 +319,6 @@ Hooks.on('deleteToken', (token) => {
   removeTokenVisuals(token);
 });
 
-
-
-
-
-
 // HOOK SETUP FOR COMPATIBILITY WITH FOUNDRY V11
 Hooks.once('ready', () => {
   setupCompatibilityHooks();
@@ -400,11 +337,5 @@ function setupCompatibilityHooks() {
       object.x = Math.round(localPos.x);
       object.y = Math.round(localPos.y);
     });
-    // Hooks.on('dropCanvasData', (canvas, object) => {
-    //   let {x, y} = canvas.stage.worldTransform.applyInverse({x: event.clientX, y: event.clientY})
-
-    //   object.x = x;
-    //   object.y = y;
-    // });
   }
 }

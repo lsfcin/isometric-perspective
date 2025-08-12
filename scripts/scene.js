@@ -63,16 +63,6 @@ async function handleRenderSceneConfig(sceneConfig, html, data) {
   // Trigger initial state
   projectionSelect.trigger('change');
 
-  // Adiciona listener para atualizar o valor exibido do slider
-  /*html.find('input[name="flags.isometric-perspective.isometricScale"]').on('input', function() {
-    html.find('.range-value').text(this.value);
-  });
-
-  // Handler for the dropdown change event
-  html.find('select[name="scene_dropdown"]').on('change', function() {
-    updateIsometricConstants(this.value);
-  });*/
-
   // Handler for the form submission
   html.find('form').on('submit', async (event) => {
     // Coleta os valores atuais dos controles
@@ -114,19 +104,7 @@ async function handleRenderSceneConfig(sceneConfig, html, data) {
         canvas.draw(); // Redraw the scene
       });
     }
-
-    //requestAnimationFrame(() => {
-      //await canvas.draw();
-      //console.log("teste");
-      //await canvas.background.refresh();
-    //});
   });
-
-  /*// Re-inicializa as tabs
-  sceneConfig.options.tabs[0].active = "isometric";
-  const tabs = sceneConfig._tabs[0];
-  tabs.bind(html[0]);
-  */
 }
 
 
@@ -225,67 +203,3 @@ function handleCanvasResize(canvas) {
   // debug print
   if (DEBUG_PRINT) console.log("Hooks.on canvasResize");
 }
-
-/*
-Hooks.on("renderGridConfig", (app, html, data) => {
-  const scene = app.object;
-  if (!scene) return;
-  
-  const isIsometric = scene.getFlag(MODULE_ID, "isometricEnabled");
-  const shouldTransformBackground = scene.getFlag(MODULE_ID, "isometricBackground") ?? false;
-  
-  // Re-apply transformations when grid config is rendered
-  if (isIsometric) {
-    requestAnimationFrame(() => {
-      applyIsometricPerspective(scene, isIsometric);
-      applyBackgroundTransformation(scene, isIsometric, shouldTransformBackground);
-    });
-  }
-  
-  // Add listener for when grid config tool is being used
-  html.find('.grid-config').on('change', () => {
-    if (isIsometric) {
-      requestAnimationFrame(() => {
-        applyIsometricPerspective(scene, isIsometric);
-        applyBackgroundTransformation(scene, isIsometric, shouldTransformBackground);
-      });
-    }
-  });
-});
-
-
-// Aplica a perspectiva isométrica quando a cena termina de ser renderizada
-Hooks.on("gridConfigUpdate", (event) => {
-  const scene = canvas.scene;
-  if (!scene) return;
-  
-  const isIsometric = scene.getFlag(MODULE_ID, "isometricEnabled");
-  const shouldTransformBackground = scene.getFlag(MODULE_ID, "isometricBackground") ?? false;
-  
-  // Re-apply isometric transformations after grid update
-  if (isIsometric) {
-    requestAnimationFrame(() => {
-      applyIsometricPerspective(scene, isIsometric);
-      applyBackgroundTransformation(scene, isIsometric, shouldTransformBackground);
-    });
-  }
-});
-
-
-
-Hooks.on("closeGridConfig", (app) => {
-  const scene = app.object;
-  if (!scene) return;
-  
-  const isIsometric = scene.getFlag(MODULE_ID, "isometricEnabled");
-  const isometricWorldEnabled = game.settings.get(MODULE_ID, "worldIsometricFlag");
-  const shouldTransformBackground = scene.getFlag(MODULE_ID, "isometricBackground") ?? false;
-  
-  if (isometricWorldEnabled && isIsometric) {
-    requestAnimationFrame(() => {
-      applyIsometricPerspective(scene, isIsometric);
-      applyBackgroundTransformation(scene, isIsometric, shouldTransformBackground);
-    });
-  }
-});
-*/
