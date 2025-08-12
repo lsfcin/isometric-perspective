@@ -63,11 +63,31 @@ export function registerOverlayHooks() {
     } catch {}
   });
 
+  // Allow other modules of this package to request re-raising the overlay
+  Hooks.on('isometricOverlayBringToTop', () => {
+    bringOverlayToTop();
+  });
+
+  // Tile hover rectangle overlay (only while hovered and not controlled)
+  Hooks.on('hoverTile', (tile, hovered) => {
+    try {
+      if (!tile) return;
+      if (hovered && !tile.controlled) drawTileHoverOverlay(tile);
+      else clearTileHoverOverlay(tile);
+      bringOverlayToTop();
+    } catch {}
+  });
+
   // Tile selection rectangle overlay
   Hooks.on('controlTile', (tile, controlled) => {
     try {
-      if (controlled) drawTileSelectionOverlay(tile);
-      else clearTileSelectionOverlay(tile);
+      // When controlled, prefer selection overlay and clear hover overlay
+      if (controlled) {
+        clearTileHoverOverlay(tile);
+        drawTileSelectionOverlay(tile);
+      } else {
+        clearTileSelectionOverlay(tile);
+      }
       // keep the hover layer on top
   bringOverlayToTop();
     } catch {}
@@ -77,6 +97,11 @@ export function registerOverlayHooks() {
       if (tile?.controlled) {
         clearTileSelectionOverlay(tile);
         drawTileSelectionOverlay(tile);
+        bringOverlayToTop();
+      } else if (tile?.hover && !tile?.controlled) {
+        // keep hover overlay in sync when tile geometry changes
+        clearTileHoverOverlay(tile);
+        drawTileHoverOverlay(tile);
         bringOverlayToTop();
       }
     } catch {}
@@ -88,11 +113,15 @@ export function registerOverlayHooks() {
         clearTileSelectionOverlay(tile);
         drawTileSelectionOverlay(tile);
         bringOverlayToTop();
+      } else if (tile?.hover && !tile?.controlled) {
+        clearTileHoverOverlay(tile);
+        drawTileHoverOverlay(tile);
+        bringOverlayToTop();
       }
     } catch {}
   });
   Hooks.on('deleteTile', (tile) => {
-    try { clearTileSelectionOverlay(tile); } catch {}
+    try { clearTileSelectionOverlay(tile); clearTileHoverOverlay(tile); } catch {}
     bringOverlayToTop();
   });
 }
@@ -200,6 +229,42 @@ function drawTileSelectionOverlay(tile) {
 function clearTileSelectionOverlay(tile) {
   if (!hoverLayer || !tile) return;
   const name = `TileSelection-${tile.id}`;
+  const existing = hoverLayer.getChildByName(name);
+  if (existing) hoverLayer.removeChild(existing);
+}
+
+// Hover overlay: orange rectangle while pointer is over the tile
+function drawTileHoverOverlay(tile) {
+  try {
+    if (!hoverLayer || !tile) return;
+    const name = `TileHover-${tile.id}`;
+    const existing = hoverLayer.getChildByName(name);
+    if (existing) hoverLayer.removeChild(existing);
+
+    const g = new PIXI.Graphics();
+    g.name = name;
+    g.eventMode = 'passive';
+    g.zIndex = 9_999_998;
+
+    const x = Number(tile.document.x) || tile.x || 0;
+    const y = Number(tile.document.y) || tile.y || 0;
+    const w = tile.document.width;
+    const h = tile.document.height;
+
+    const stroke = 0xffa500;
+    g.lineStyle(2, stroke, 0.9);
+    g.drawRect(x, y, w, h);
+
+    hoverLayer.addChild(g);
+    bringOverlayToTop();
+  } catch (e) {
+    console.error('Tile hover overlay draw error:', e);
+  }
+}
+
+function clearTileHoverOverlay(tile) {
+  if (!hoverLayer || !tile) return;
+  const name = `TileHover-${tile.id}`;
   const existing = hoverLayer.getChildByName(name);
   if (existing) hoverLayer.removeChild(existing);
 }

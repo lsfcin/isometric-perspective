@@ -258,6 +258,8 @@ function updateAlwaysVisibleElements() {
         if (alwaysVisibleContainer?.parent === canvas.stage) {
             canvas.stage.removeChild(alwaysVisibleContainer);
             canvas.stage.addChild(alwaysVisibleContainer);
+            // Signal overlay to raise itself above tiles
+            Hooks.callAll('isometricOverlayBringToTop');
         }
     } catch {}
 
