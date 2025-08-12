@@ -69,6 +69,7 @@ export function registerDynamicTileConfig() {
     });
     Hooks.on('refreshTile', () => updateAlwaysVisibleElements());
     Hooks.on('deleteTile', () => updateAlwaysVisibleElements());
+    Hooks.on('updateTile', () => updateAlwaysVisibleElements());
 
     // Token hooks
     Hooks.on('createToken', () => setTimeout(() => updateAlwaysVisibleElements(), 100));
@@ -128,7 +129,13 @@ export function registerDynamicTileConfig() {
 
 function updateLayerOpacity(layer, opacity) {
     if (!layer) return;
-    layer.children.forEach(sprite => { sprite.alpha = opacity; });
+    layer.children.forEach(sprite => {
+        const base = typeof sprite.baseAlpha === 'number' ? sprite.baseAlpha : sprite.alpha ?? 1;
+        // Choose multiplier by sprite group to keep tile clones following tile opacity even on tokens layer
+        const group = sprite.opacityGroup || (layer === tokensLayer ? 'tokens' : 'tiles');
+        const mul = group === 'tiles' ? tilesOpacity : tokensOpacity;
+        sprite.alpha = base * mul;
+    });
 }
 
 export function updateTilesOpacity(value) {
@@ -141,6 +148,7 @@ export function decreaseTilesOpacity() { updateTilesOpacity(tilesOpacity - 0.5);
 export function resetOpacity() {
     tilesOpacity = 1.0;
     updateTilesOpacity(tilesOpacity);
+    if (tokensLayer) updateLayerOpacity(tokensLayer, tokensOpacity);
 }
 
 export function updateTokensOpacity(value) {
@@ -150,20 +158,26 @@ export function updateTokensOpacity(value) {
 export function increaseTokensOpacity() { updateTokensOpacity(tokensOpacity + 0.1); }
 export function decreaseTokensOpacity() { updateTokensOpacity(tokensOpacity - 0.1); }
 
-function cloneTileSprite(tile, walls) {
-    const sprite = new PIXI.Sprite(tile.texture);
-    sprite.position.set(tile.position.x, tile.position.y);
-    sprite.anchor.set(tile.anchor.x, tile.anchor.y);
-    sprite.angle = tile.angle;
-    sprite.scale.set(tile.scale.x, tile.scale.y);
+function cloneTileSprite(tilePlaceable, walls) {
+    const mesh = tilePlaceable?.mesh;
+    if (!mesh) return null;
+        const sprite = new PIXI.Sprite(mesh.texture);
+    sprite.position.set(mesh.position.x, mesh.position.y);
+    sprite.anchor.set(mesh.anchor.x, mesh.anchor.y);
+    sprite.angle = mesh.angle;
+    sprite.scale.set(mesh.scale.x, mesh.scale.y);
     // If walls are provided, block visibility when any linked door is closed; if none provided, ignore wall gating
     const hasClosedDoor = Array.isArray(walls) && walls.length > 0
         ? walls.some(wall => wall && (wall.document.door === 1 || wall.document.door === 2) && wall.document.ds === 1)
         : false;
     if (hasClosedDoor) return null;
-    sprite.alpha = tile.alpha * tilesOpacity;
+    // Respect per-tile opacity from document and multiply by layer opacity
+    const tileDocAlpha = typeof tilePlaceable?.document?.alpha === 'number' ? tilePlaceable.document.alpha : 1;
+    sprite.baseAlpha = tileDocAlpha;
+    sprite.alpha = tileDocAlpha * tilesOpacity;
+        sprite.opacityGroup = 'tiles';
     sprite.eventMode = 'passive';
-    sprite.originalTile = tile;
+    sprite.originalTile = tilePlaceable;
     return sprite;
 }
 
@@ -178,7 +192,10 @@ function cloneTokenSprite(token) {
         sprite.anchor.set(token.anchor.x, token.anchor.y);
         sprite.angle = token.angle;
         sprite.scale.set(token.scale.x, token.scale.y);
-        sprite.alpha = token.alpha * tokensOpacity;
+    const tokenAlpha = typeof token.alpha === 'number' ? token.alpha : 1;
+    sprite.baseAlpha = tokenAlpha;
+    sprite.alpha = tokenAlpha * tokensOpacity;
+    sprite.opacityGroup = 'tokens';
         sprite.eventMode = 'passive';
         sprite.originalToken = token;
         return sprite;
@@ -230,7 +247,8 @@ function updateAlwaysVisibleElements() {
     // Debug overlays (coordinates), added last so they render on top
     addDebugOverlays(plan);
 
-    updateLayerOpacity(tilesLayer, tilesOpacity);
+        updateLayerOpacity(tilesLayer, tilesOpacity);
+        updateLayerOpacity(tokensLayer, tokensOpacity);
     // Ensure tiles use insertion order only (no zIndex sorting)
     tilesLayer.sortableChildren = false;
     tokensLayer.sortableChildren = true;
@@ -256,9 +274,9 @@ function computeVisibilityDrawPlan(controlledToken) {
 
     // Prepare tiles and their grid bottom-corner for later token occlusion checks
     const tileEntries = [];
-    for (const tile of tilesSorted) {
-        const walls = getLinkedWalls(tile);
-        const clonedSprite = cloneTileSprite(tile.mesh, walls);
+        for (const tile of tilesSorted) {
+            const walls = getLinkedWalls(tile);
+            const clonedSprite = cloneTileSprite(tile, walls);
         if (clonedSprite) plan.tiles.push({ sprite: clonedSprite });
 
         const { gx: tgx, gy: tgy } = getTileBottomCornerGridXY(tile);
@@ -277,8 +295,8 @@ function computeVisibilityDrawPlan(controlledToken) {
 
                 // Grid-only occlusion: for every tile where (gx >= tx && gy <= ty), draw that tile above this token
                 const occludingTiles = tileEntries.filter(te => gx >= te.gx && gy <= te.gy);
-                for (const te of occludingTiles) {
-                    const occ = cloneTileSprite(te.tile.mesh, te.walls);
+                    for (const te of occludingTiles) {
+                        const occ = cloneTileSprite(te.tile, te.walls);
                     if (occ) plan.occluders.push({ sprite: occ, z: depth + 0.5 });
                 }
             }
@@ -299,8 +317,8 @@ function computeVisibilityDrawPlan(controlledToken) {
 
                 // Grid-only occlusion for all qualifying tiles
                 const occludingTiles = tileEntries.filter(te => gx >= te.gx && gy <= te.gy);
-                for (const te of occludingTiles) {
-                    const occ = cloneTileSprite(te.tile.mesh, te.walls);
+                    for (const te of occludingTiles) {
+                        const occ = cloneTileSprite(te.tile, te.walls);
                     if (occ) plan.occluders.push({ sprite: occ, z: depth + 0.5 });
                 }
     }
