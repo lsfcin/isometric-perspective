@@ -177,13 +177,14 @@ export function applyIsometricTransformation(object, isSceneIsometric) {
       object.mesh.scale.set(-meshScaleX, meshScaleY);
     }
 
-    // Defines the manual offset to center the tile
+    // Defines the manual offset relative to the bottom-left anchor
     let isoOffsets = cartesianToIso(offsetX, offsetY);
     
-  // Set tile's position (center at the rectangle center regardless of aspect)
+    // Anchor bottom-left of the image to the rectangle's bottom-left (unless user offsets move it)
+    object.mesh.anchor.set(0.0, 1.0);
     object.mesh.position.set(
-      object.document.x + (scaleX / 2) + isoOffsets.x,
-      object.document.y + (scaleY / 2) + isoOffsets.y
+      object.document.x + isoOffsets.x,
+      (object.document.y + scaleY) + isoOffsets.y
     );
   }
 }
