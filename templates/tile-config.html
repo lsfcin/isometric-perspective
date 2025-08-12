@@ -73,6 +73,14 @@
   </div>
   
   <div class="form-group">
+    <label>Hide When Linked Door Open</label>
+    <div class="form-fields">
+      <input type="checkbox" name="flags.isometric-perspective.hideWhenDoorOpen" {{#if hideWhenDoorOpen}}checked{{/if}}>
+    </div>
+    <p class="notes">When checked and any linked door is open, this tile becomes fully invisible.</p>
+  </div>
+  
+  <div class="form-group">
     <button type="button" class="select-wall"><i class="fas fa-plug"></i> {{localize 'isometric-perspective.tile_link_wall_select_wall'}}</button>
     <button type="button" class="clear-wall"><i class="fa-solid fa-burst"></i> {{localize 'isometric-perspective.tile_link_wall_clear_wall'}}</button>
     <p class="notes">{{localize 'isometric-perspective.tile_link_wall_hint'}}</p>

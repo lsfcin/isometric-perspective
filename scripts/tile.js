@@ -22,6 +22,7 @@ async function handleRenderTileConfig(app, html, data) {
     offsetY: app.object.getFlag(MODULE_ID, 'offsetY') ?? 0,
     linkedWallIds: wallIdsString,
     isOccluding: app.object.getFlag(MODULE_ID, 'OccludingTile') ?? false,
+  hideWhenDoorOpen: app.object.getFlag(MODULE_ID, 'hideWhenDoorOpen') ?? false,
     occlusionAlpha: (() => {
       const v = app.object.getFlag(MODULE_ID, 'OcclusionAlpha');
       if (v === undefined || v === null || Number.isNaN(Number(v))) return 1;
@@ -58,6 +59,7 @@ async function handleRenderTileConfig(app, html, data) {
   const flipCheckbox = html.find('input[name="flags.isometric-perspective.tokenFlipped"]');
   const linkedWallInput = html.find('input[name="flags.isometric-perspective.linkedWallIds"]');
   const occludingCheckbox = html.find('input[name="flags.isometric-perspective.OccludingTile"]');
+  const hideWhenDoorOpenCheckbox = html.find('input[name="flags.isometric-perspective.hideWhenDoorOpen"]');
   const occlusionAlphaGroup = html.find('[data-occlusion-alpha]');
   const occlusionAlphaInput = html.find('input[name="flags.isometric-perspective.OcclusionAlpha"]');
   
@@ -65,6 +67,7 @@ async function handleRenderTileConfig(app, html, data) {
   flipCheckbox.prop("checked", app.object.getFlag(MODULE_ID, "tokenFlipped"));
   linkedWallInput.val(wallIdsString);
   occludingCheckbox.prop("checked", app.object.getFlag(MODULE_ID, "OccludingTile"));
+  hideWhenDoorOpenCheckbox.prop("checked", app.object.getFlag(MODULE_ID, "hideWhenDoorOpen"));
   // Show/Hide the occlusion alpha slider depending on checkbox
   const toggleOccAlpha = () => occlusionAlphaGroup.toggle(!!occludingCheckbox.prop('checked'));
   toggleOccAlpha();
@@ -103,6 +106,12 @@ async function handleRenderTileConfig(app, html, data) {
       await app.object.setFlag(MODULE_ID, "OccludingTile", true);
     } else {
       await app.object.unsetFlag(MODULE_ID, "OccludingTile");
+    }
+
+    if (html.find('input[name="flags.isometric-perspective.hideWhenDoorOpen"]').prop("checked")) {
+      await app.object.setFlag(MODULE_ID, "hideWhenDoorOpen", true);
+    } else {
+      await app.object.unsetFlag(MODULE_ID, "hideWhenDoorOpen");
     }
 
   // Persist OcclusionAlpha (clamped)

@@ -198,16 +198,11 @@ export function decreaseTokensOpacity() { updateTokensOpacity(tokensOpacity - 0.
 function cloneTileSprite(tilePlaceable, walls, asOccluder = false) {
     const mesh = tilePlaceable?.mesh;
     if (!mesh) return null;
-        const sprite = new PIXI.Sprite(mesh.texture);
+    const sprite = new PIXI.Sprite(mesh.texture);
     sprite.position.set(mesh.position.x, mesh.position.y);
     sprite.anchor.set(mesh.anchor.x, mesh.anchor.y);
     sprite.angle = mesh.angle;
     sprite.scale.set(mesh.scale.x, mesh.scale.y);
-    // If walls are provided, block visibility when any linked door is closed; if none provided, ignore wall gating
-    const hasClosedDoor = Array.isArray(walls) && walls.length > 0
-        ? walls.some(wall => wall && (wall.document.door === 1 || wall.document.door === 2) && wall.document.ds === 1)
-        : false;
-    if (hasClosedDoor) return null;
     // Base alpha uses the document alpha; when asOccluder, multiply by OcclusionAlpha
     const tileDocAlpha = typeof tilePlaceable?.document?.alpha === 'number' ? tilePlaceable.document.alpha : 1;
     const occAlpha = asOccluder ? clamp01(tilePlaceable?.document?.getFlag(MODULE_ID, 'OcclusionAlpha') ?? 1) : 1;
@@ -348,6 +343,14 @@ function computeVisibilityDrawPlan(controlledToken) {
     const tileEntries = [];
     for (const tile of tilesSorted) {
         const walls = getLinkedWalls(tile);
+        // If any linked door is open, hide this tile entirely (original + clones)
+        const anyDoorOpen = Array.isArray(walls) && walls.some(w => (w?.document?.door === 1 || w?.document?.door === 2) && w?.document?.ds !== 1);
+        if (anyDoorOpen) {
+            plan.hideOriginalTileIds.push(tile.id);
+            continue;
+        }
+    // Hide the original occluding tile mesh; we'll render it via clones for consistent opacity control
+    plan.hideOriginalTileIds.push(tile.id);
         const { gx: tgx, gy: tgy } = getTileBottomCornerGridXY(tile);
         // Collect debug info for tile bottom-corner grid coords
         plan.debugTiles.push({ gx: tgx, gy: tgy, px: tile.document.x, py: tile.document.y + tile.document.height });
@@ -402,11 +405,15 @@ function computeVisibilityDrawPlan(controlledToken) {
     }
 
     // Occluder clones on tokens layer (for proper stacking), only for tiles that actually occlude each token
+    const hideSet = new Set(plan.hideOriginalTileIds || []);
     for (const tk of visibleTokens) {
         const { gx, gy } = getTokenGridXY(tk);
         const depth = gx + gy;
         const occludingTiles = tileEntries.filter(te => gx >= te.gx && gy <= te.gy);
         for (const te of occludingTiles) {
+            // If we already replaced the base tile for the controlled token with an occluder clone,
+            // don’t add a duplicate for that same token here.
+            if (controlledToken && tk.id === controlledToken.id && hideSet.has(te.tile.id)) continue;
             const occ = cloneTileSprite(te.tile, te.walls, true);
             if (occ) plan.occluders.push({ sprite: occ, z: depth + 0.5 });
         }
