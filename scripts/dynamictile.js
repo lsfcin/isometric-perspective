@@ -144,6 +144,14 @@ export function registerDynamicTileConfig() {
                 active: true,
                 onClick: () => decreaseTilesOpacity(),
                 button: true
+            },
+            {
+                name: 'dynamic-tile-flip',
+                title: 'Flip Selected Tiles',
+                icon: 'fa-solid fa-arrows-left-right',
+                active: true,
+                onClick: () => flipSelectedTiles(),
+                button: true
             }
         );
     });
@@ -182,6 +190,34 @@ async function adjustSelectedTilesOcclusionAlpha(delta = 0.1) {
 }
 export function increaseTilesOpacity() { adjustSelectedTilesOcclusionAlpha(+0.1); }
 export function decreaseTilesOpacity() { adjustSelectedTilesOcclusionAlpha(-0.1); }
+
+// Flip selected tiles around their bottom-left by swapping width/height, keeping bottom edge fixed,
+// toggling the tokenFlipped flag, and inverting offsetY to match the Tile Config behavior.
+async function flipSelectedTiles() {
+    try {
+        const selected = Array.from(canvas.tiles?.controlled || []);
+        if (!selected.length) return;
+        const updates = [];
+        for (const t of selected) {
+            const doc = t.document;
+            const w = Number(doc.width) || 0;
+            const h = Number(doc.height) || 0;
+            const yVal = Number(doc.y) || 0;
+            const curOffY = Number(doc.getFlag(MODULE_ID, 'offsetY')) || 0;
+            const flipped = !!doc.getFlag(MODULE_ID, 'tokenFlipped');
+            const newY = yVal + (h - w);
+            updates.push({
+                _id: doc.id,
+                width: h,
+                height: w,
+                y: newY,
+                [`flags.${MODULE_ID}.tokenFlipped`]: !flipped,
+                [`flags.${MODULE_ID}.offsetY`]: -curOffY
+            });
+        }
+        if (updates.length) await canvas.scene.updateEmbeddedDocuments('Tile', updates);
+    } catch (e) { if (DEBUG_PRINT) console.warn('flipSelectedTiles failed', e); }
+}
 
 export function resetOpacity() {
     tilesOpacity = 1.0;
