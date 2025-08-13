@@ -164,8 +164,24 @@ export function updateTilesOpacity(value) {
     tilesOpacity = Math.max(0, Math.min(1, value));
     if (tilesLayer) updateLayerOpacity(tilesLayer, tilesOpacity);
 }
-export function increaseTilesOpacity() { updateTilesOpacity(tilesOpacity + 0.5); }
-export function decreaseTilesOpacity() { updateTilesOpacity(tilesOpacity - 0.5); }
+// Instead of adjusting a global tiles opacity, adjust the OcclusionAlpha per selected tile
+async function adjustSelectedTilesOcclusionAlpha(delta = 0.1) {
+    try {
+        const selected = Array.from(canvas.tiles?.controlled || []);
+        if (!selected.length) return;
+        const updates = [];
+        for (const t of selected) {
+            const doc = t.document;
+            const cur = Number(doc.getFlag(MODULE_ID, 'OcclusionAlpha'));
+            const base = Number.isFinite(cur) ? cur : 1;
+            const next = clamp01(base + delta);
+            updates.push({ _id: doc.id, [`flags.${MODULE_ID}.OcclusionAlpha`]: next });
+        }
+        if (updates.length) await canvas.scene.updateEmbeddedDocuments('Tile', updates);
+    } catch (e) { if (DEBUG_PRINT) console.warn('adjustSelectedTilesOcclusionAlpha failed', e); }
+}
+export function increaseTilesOpacity() { adjustSelectedTilesOcclusionAlpha(+0.1); }
+export function decreaseTilesOpacity() { adjustSelectedTilesOcclusionAlpha(-0.1); }
 
 export function resetOpacity() {
     tilesOpacity = 1.0;
