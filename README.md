@@ -1,106 +1,104 @@
 # Isometric Perspective — Enhanced Fork
 
-This fork builds on the excellent Isometric Perspective module and adds focused improvements for occlusion, isometric fidelity, overlays, flipping, and wall integration.
+An actively maintained fork of the original Isometric Perspective module for Foundry VTT. This version focuses on: reliable occlusion, stable isometric transforms, wall + tile cohesion, flip ergonomics, and low‑friction per‑image presets.
 
-Core credits: All foundational work belongs to the original author and project:
-- Original repo: https://github.com/arlosmolten/isometric-perspective
-- Please support and reference the original project for the base module, vision, and design.
+Core credits: all foundational work belongs to the original author.
+* Original project: https://github.com/arlosmolten/isometric-perspective
+* This fork: https://github.com/lsfcin/isometric-perspective
 
-This fork: https://github.com/lsfcin/isometric-perspective
+## Highlights
 
-## What’s new in this fork
+### Occlusion & Visibility
+* Tile occlusion without permanently dimming art: occluder clones are drawn on the token layer only while hiding tokens.
+* Per‑tile Occlusion Opacity slider (visible only when “Occluding Tokens” is enabled).
+* Door‑linked visibility: opening a linked door wall can fully hide a tile.
 
-- Token occlusion that doesn’t alter tile appearance
-  - “Occluding Tokens” flag keeps tiles visually unchanged; occlusion is rendered via clones on the tokens layer.
-  - New “Occlusion Opacity” slider (Isometric tab) controls how dim the tile appears only while occluding tokens.
-  - Slider is visible only when “Occluding Tokens” is enabled.
+### Interaction & Rendering Polish
+* Selection / hover overlays always above source and clone layers.
+* Native manipulation rectangle restored and cleaned up.
+* Resize logic preserves isometric aspect (longest side scale rule) — no art squashing.
 
-- Door‑linked visibility
-  - If a tile is linked to a wall configured as a door and the door is open, the tile is fully hidden (original + clones).
+### Geometry & Anchoring
+* Bottom‑left anchor for transforms and offsets.
+* One‑click horizontal flip swaps width/height while locking the bottom edge; offsetY inverted automatically; double flip restores original precisely.
 
-- Overlays and interaction polish
-  - Selection/hover overlays reliably render above tiles and clones.
-  - Orange manipulation rectangle restored and hover‑only.
+### Linked Walls
+* Walls can be attached to a tile so they move, resize, and flip with it.
+* Relative anchor points stored (normalized in bottom‑left basis) and rebuilt if missing.
+* Manual wall edits persist: moving endpoints updates stored anchors so subsequent tile adjustments keep intent.
 
-- Geometric fidelity and anchoring
-  - Prevent isometric art distortion on resize: scale based on the longest side to preserve aspect.
-  - Bottom‑left anchoring for tile art and transforms; offsets applied in that basis.
+### Batch Controls
+* Toolbar buttons for Increase / Decrease Occlusion Opacity on selected tiles.
+* Batch Flip respects the same anchor logic and updates linked walls.
 
-- Flip quality of life
-  - One‑click flip swaps width/height and keeps the bottom edge fixed (y compensation).
-  - Inverts offsetY to maintain bottom‑anchored alignment.
-  - Keeps the Isometric tab active and updates the native manipulation rectangle on the first click.
-  - Double‑flip cancels cleanly with no drift.
-
-- Linked walls follow tiles (move, resize, flip)
-  - You can link walls to a tile (IDs in the Isometric tab). Linked walls:
-    - Move and scale as the tile moves/resizes.
-    - Flip correctly with the tile using stable, anchor‑space math (bottom‑left basis).
-    - Persist manual wall edits: editing a wall updates stored anchors so later tile moves keep your changes.
-  - Anchors are auto‑created for any linked walls and healed if missing or from older bases.
-  - Flip behavior for walls mirrors along the isometric diagonal by swapping normalized local anchors (dx ↔ dy); two flips restore the original.
-
-- Dynamic controls for occlusion opacity and flip
-  - “Increase/Decrease Dynamic Tile Opacity” buttons now adjust the selected tiles’ Occlusion Opacity (same value as the Isometric tab slider), not a global layer alpha.
-  - New “Flip Selected Tiles” button in the Tiles controls: batch‑flips selected tiles with the same semantics as the Isometric tab (swap width/height, fix bottom edge, toggle tokenFlipped, invert offsetY). Existing wall‑follow logic applies.
-
-- Occlusion parity and ordering
-  - Non‑occluding tiles render normally (no dimming, appear as in base canvas).
-  - Occluder clones draw on the tokens layer for correct stacking with tokens; non‑occluding clones draw on the tiles layer.
-  - Simple grid‑based z‑ordering to keep visuals consistent in isometric scenes.
-
-### Tile Image Presets (New)
-
-An opt‑in lightweight system that automatically remembers isometric adjustments (offsets, scale, flip, occlusion flags, linked walls & anchors) per image filename and reapplies them to future tiles using the same image.
-
-How it works:
-- In the Tile Isometric tab there is a single checkbox: "Store and Use Preset".
-- When checked (default), any meaningful update to the tile (other than pure movement) overwrites a hidden preset keyed by the image file name.
-- Creating a new tile with the same image automatically applies the stored preset (size, flags, and wall clones if the new tile has no walls yet).
-- Linked walls are cloned with preserved relative anchors if Include Walls conditions are met (auto‑apply only when destination tile has none).
-- Deleting a tile removes any uniquely linked cloned walls (walls still referenced by other tiles are kept).
-
-Opting out:
-- Uncheck "Store and Use Preset" on a specific tile to prevent saving future changes and to ignore auto‑application for that tile.
-
-Diagnostics & power‑users:
-- A console helper is exposed (window.ISO_TILE_PRESETS) with get / save / apply / del for manual experimentation.
-- Presets are stored in a hidden world setting and survive restarts.
-
-This replaces earlier, fuller preset UI controls with a minimal workflow focused on zero‑click reuse.
+### Image Presets (Per Filename)
+* Opt‑in (checkbox “Store and Use Preset”).
+* Saves key isometric flags + offsets + flip + occlusion settings + wall linkage per image filename.
+* Automatically re‑applies to new tiles with the same image (only clones walls if the destination tile has none yet).
+* Tile deletion removes cloned walls that no other tile references.
+* Minimal UI – no manual preset list clutter.
 
 ## Compatibility
-
-- Tested on Foundry VTT v12. Some compatibility paths for v11 are kept where feasible.
-- PIXI rendering is used for clone layers. Overlays are managed to remain above tiles.
+* Target: Foundry VTT v12 (some v11 resilience retained).
+* Uses PIXI layers for clones; integrates with standard walls and token elevation features.
 
 ## Installation
+1. Install like any module or clone into your data folder: `${UserData}/Data/modules/isometric-perspective`
+2. Enable the module in World Settings.
+3. Optional world settings: enable global isometric flag; enable dynamic tile occlusion.
 
-- Install this fork like a standard Foundry module, or clone into your Foundry data modules folder:
-  - `${UserData}/Data/modules/isometric-perspective`
-- Enable the module in your world.
-- Settings to consider:
-  - World isometric flag
-  - Enable dynamic occlusion for tiles
+## Usage
+Open a Tile’s configuration => “Isometric” tab:
+* Toggle “Occluding Tokens”.
+* Adjust Occlusion Opacity (only shown when occluding).
+* Offsets & Scale for alignment (resize preserves aspect automatically).
+* Flip checkbox for per‑tile orientation.
+* Enter wall IDs (or use Attach UI if present) to link walls; they then follow transforms.
+* “Store and Use Preset” keeps / reuses adjustments for identical image filenames.
 
-## Usage tips
+Toolbar (Tiles layer) provides batch opacity adjust and flip.
 
-- Per‑tile settings live in the Tile configuration under the “Isometric” tab:
-  - Enable “Occluding Tokens” to make a tile participate in occlusion.
-  - Adjust “Occlusion Opacity” for how strongly the tile dims while it occludes tokens.
-  - Use offsets and scale to align isometric art; resizing preserves aspect.
-  - Use the Flip checkbox for single‑tile adjustment.
-  - Link wall IDs to make walls follow the tile. Manual edits to walls are preserved.
-- Scene toolbar (Tiles controls):
-  - Increase/Decrease Dynamic Tile Opacity: Adjusts the per‑tile Occlusion Opacity for selected tiles.
-  - Flip Selected Tiles: Batch‑flip any selected tiles (and their linked walls).
+Console helper (for debugging): `window.ISO_TILE_PRESETS` with `get / save(name) / apply(name) / del(name)`.
+
+## Roadmap
+
+### Completed
+* Dynamic token visibility no longer requires tiles to own walls.
+* Context‑aware opacity handling (normal, behind token, door open scenario).
+* Movement / flight path line drawn in the player’s color.
+* Resize of the tile’s rectangle does not distort isometric artwork.
+* Attached (linked) walls follow tile move, resize, and flip using anchored relative coordinates.
+
+### Planned / In Progress
+* Define default settings for newly created tiles (auto‑preset opt‑in, initial scale, occlusion defaults).
+* Fine‑tune drop placement (tile currently appears slightly above intended bottom‑left cursor point).
+* Correct a minor grid alignment offset (sub‑pixel deviation on one axis).
+* Open config popups docked to the right side instead of screen center.
+* Allow non‑dynamic tiles to override dynamic tiles in render ordering when needed.
+* Add per‑tile "max height" for occlusion logic (virtual vertical extent cap).
+* Provide optional center‑anchor flip mode.
+* Display & edit linked wall endpoints inline when a tile is selected (direct manipulation handles).
+* Tile reordering UI: move up, to top, move down, to bottom.
+* Dynamic lighting interaction for tiles (light blocking / emission integration).
+* Hide direct elevation display or remap elevation to an internal height offset like tokens.
+* Automatic shadow distance derived from tile height.
+* Drop shadow option (square / round) for tiles and tokens.
+* Token image rotation (preserving isometric projection rules).
+* Animated tokens (spritesheet / frame cycling support).
+* Multiple token image variants selectable by players.
+* Explicit “Save Tile Adjustments to Image” button (UI wrapper around auto preset system).
+* Explicit “Save Token Adjustments to Image” button.
+* Auto‑draw ground shadow for tokens (no baked shadow needed in artwork).
+* Perspective skew (shear) controls in Isometric tab.
+* Isometric dice roll visual effect.
+
+### Future Ideas / Experimental
+* Dedicated corner dice rolling / animation area.
+
+If an item matters to your workflow, open an issue describing the scenario. PRs welcome.
 
 ## Acknowledgements
-
-- Massive thanks to the original author and contributors of Isometric Perspective. This fork exists to iterate on specific workflows while honoring the original architecture and design.
-- For core concepts, groundwork, and ongoing inspiration, please visit and support the original project:
-  - https://github.com/arlosmolten/isometric-perspective
+Massive thanks to the original author and contributors of the Isometric Perspective project for the core foundations.
 
 ## License
-
-- This fork follows the licensing terms of the original project. See the original repository for license details and attribution requirements.
+Follows the original project’s license terms. See the upstream repository for details and attribution requirements.
