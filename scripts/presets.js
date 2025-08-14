@@ -60,7 +60,7 @@ export function extractTilePreset(tileDocument) {
   // Explicitly collect known flags we care about now (others can be added later)
   const wanted = [
     'isoTileDisabled','scale','tokenFlipped','offsetX','offsetY',
-    'OccludingTile','OcclusionAlpha','linkedWallIds','linkedWallAnchors'
+  'OccludingTile','OcclusionAlpha','linkedWallIds','linkedWallAnchors'
   ];
   const collected = {};
   for (const k of wanted) {
@@ -86,29 +86,8 @@ export function extractTilePreset(tileDocument) {
       }
       if (Object.keys(anchors).length) collected.linkedWallAnchors = anchors;
     } else if (!hadLinked) {
-      // Fallback discovery: find walls whose both endpoints lie within (or on edge of) tile bounds (tolerance)
-      const tx = Number(tileDocument.x) || 0;
-      const ty = Number(tileDocument.y) || 0;
-      const tw = Math.max(1, Number(tileDocument.width) || 1);
-      const th = Math.max(1, Number(tileDocument.height) || 1);
-      const bottomY = ty + th;
-      const tolerance = 2; // px
-      const inside = (x,y)=> x >= tx - tolerance && x <= tx + tw + tolerance && y >= ty - tolerance && y <= ty + th + tolerance;
-      const anchors = {};
-      const discovered = [];
-      for (const w of canvas?.walls?.placeables || []) {
-        const c = w.document?.c || w.document?.data?.c || [0,0,0,0];
-        const ax = Number(c[0])||0, ay=Number(c[1])||0, bx=Number(c[2])||0, by=Number(c[3])||0;
-        if (!(inside(ax,ay) && inside(bx,by))) continue; // require both endpoints for now to reduce false positives
-        discovered.push(w.id);
-        const toRel = (x,y)=> ({ dx: (x - tx)/tw, dy: (bottomY - y)/th });
-        anchors[w.id] = { a: toRel(ax,ay), b: toRel(bx,by) };
-      }
-      if (discovered.length) {
-        collected.linkedWallIds = discovered;
-        collected.linkedWallAnchors = anchors;
-        if (DEBUG_PRINT) console.log('Preset extract fallback discovered walls', discovered);
-      }
+      // No walls: ensure anchors removed.
+      delete collected.linkedWallAnchors;
     }
   } catch (e) { if (DEBUG_PRINT) console.warn('Failed computing anchors during preset extraction', e); }
   // Gather full wall metadata (clone most properties excluding runtime-only). Keep original 'c' for reference; we'll overwrite.
@@ -146,6 +125,14 @@ export function saveTilePreset(name, tileDocument, { overwrite = false } = {}) {
     finalName = `${finalName} (${i})`;
   }
   const data = extractTilePreset(tileDocument);
+  // Sanitize: if no linked walls, remove anchors & wallMeta
+  try {
+    const f = data?.flags || {};
+    if (!Array.isArray(f.linkedWallIds) || !f.linkedWallIds.length) {
+      if (f.linkedWallAnchors) delete f.linkedWallAnchors;
+      if (data.wallMeta) data.wallMeta = {};
+    }
+  } catch {}
   const now = Date.now();
   const entry = { name: finalName, created: now, updated: now, data };
   attachImageKey(entry, tileDocument);
@@ -176,34 +163,50 @@ export async function applyTilePreset(tileDocument, presetName, { includeSize = 
   }
   await canvas.scene.updateEmbeddedDocuments('Tile', [update]);
 
-  // Clone walls only if requested, tile currently has none, and preset had anchor data
+  // Clone walls only if requested and tile currently has none (or only stale references), and preset had anchor data
   if (includeWalls) {
     try {
       let existing = tileDocument.getFlag(MODULE_ID, 'linkedWallIds') || [];
+      existing = existing.filter(id => !!canvas.walls.get(id)); // drop stale IDs for detection
       const anchors = data.flags?.linkedWallAnchors || {};
       let oldIds = data.flags?.linkedWallIds || [];
       if ((!anchors || !Object.keys(anchors).length) && DEBUG_PRINT) console.warn('Preset apply: no anchors found, skipping wall cloning');
   if (!anchors || !Object.keys(anchors).length) return; // cannot safely clone without anchors
       // Fallback: if linkedWallIds empty but we have anchor keys, derive from anchor keys
       if (!oldIds.length) oldIds = Object.keys(anchors);
-      // Duplication scenario: existing wall IDs exactly match preset source IDs -> treat as needing fresh clones
-      if (Array.isArray(existing) && existing.length) {
-        const sameSet = existing.every(id => oldIds.includes(id));
-        if (sameSet) {
-          if (DEBUG_PRINT) console.log('Preset apply: duplication detected, re-cloning walls');
-          await tileDocument.setFlag(MODULE_ID, 'linkedWallIds', []);
-          existing = [];
-        } else {
-          if (DEBUG_PRINT) console.log('Preset apply: tile already has different walls, skipping clone');
-          return;
-        }
-      }
-      const wallMeta = data.wallMeta || {};
-      const tx = Number(tileDocument.x) || 0;
-      const ty = Number(tileDocument.y) || 0;
+      if (Array.isArray(existing) && existing.length) { if (DEBUG_PRINT) console.log('Preset apply: tile already has walls, skipping clone'); return; }
+      // Additional safety: detect if matching walls already exist spatially in scene (from previous accidental clone)
       const tw = Number(tileDocument.width) || 1;
       const th = Number(tileDocument.height) || 1;
+      const tx = Number(tileDocument.x) || 0;
+      const ty = Number(tileDocument.y) || 0;
       const bottomY = ty + th;
+      const planned = [];
+      for (const oid of oldIds) {
+        const rel = anchors[oid];
+        if (!rel) continue;
+        const ax = tx + (rel.a.dx * tw);
+        const ay = bottomY - (rel.a.dy * th);
+        const bx = tx + (rel.b.dx * tw);
+        const by = bottomY - (rel.b.dy * th);
+        // Normalize ordering & rounding for comparison tolerance (1px)
+        const key = (ax < bx || (ax === bx && ay <= by)) ? `${Math.round(ax)}:${Math.round(ay)}-${Math.round(bx)}:${Math.round(by)}` : `${Math.round(bx)}:${Math.round(by)}-${Math.round(ax)}:${Math.round(ay)}`;
+        planned.push(key);
+      }
+      const existingNear = new Set();
+      if (planned.length) {
+        for (const w of canvas.walls.placeables) {
+          const c = w.document?.c || [0,0,0,0];
+          const ax = c[0], ay = c[1], bx = c[2], by = c[3];
+          const key = (ax < bx || (ax === bx && ay <= by)) ? `${Math.round(ax)}:${Math.round(ay)}-${Math.round(bx)}:${Math.round(by)}` : `${Math.round(bx)}:${Math.round(by)}-${Math.round(ax)}:${Math.round(ay)}`;
+          if (planned.includes(key)) existingNear.add(key);
+        }
+      }
+      if (existingNear.size === planned.length && planned.length) {
+        if (DEBUG_PRINT) console.log('Preset apply: matching walls already exist in scene; skipping clone');
+        return;
+      }
+      const wallMeta = data.wallMeta || {};
       const seen = new Set();
       const createData = [];
       const idToRel = {};
@@ -340,6 +343,25 @@ Hooks.on('updateTile', (doc, changes, options, userId) => {
 // Hook tile config submit if needed (redundant with updateTile, but ensures manual form commits propagate)
 Hooks.on('closeTileConfig', (app, html) => {
   try { const doc = app?.object; if (doc) setTimeout(()=> upsertImagePresetForTile(doc), 50); } catch {}
+});
+
+// When a wall is deleted, purge it from any tile flags and update related presets
+Hooks.on('deleteWall', async (wallDocument) => {
+  try {
+    const wallId = wallDocument?.id; if (!wallId) return;
+    const tiles = canvas.tiles?.placeables || [];
+    for (const t of tiles) {
+      const doc = t.document;
+      const ids = doc.getFlag(MODULE_ID, 'linkedWallIds') || [];
+      if (!ids.includes(wallId)) continue;
+      const newIds = ids.filter(id => id !== wallId);
+      await doc.setFlag(MODULE_ID, 'linkedWallIds', newIds);
+      const anchors = doc.getFlag(MODULE_ID, 'linkedWallAnchors') || {};
+      if (anchors[wallId]) { delete anchors[wallId]; await doc.setFlag(MODULE_ID, 'linkedWallAnchors', anchors); }
+      // Update preset to drop reference
+      setTimeout(()=> upsertImagePresetForTile(doc), 25);
+    }
+  } catch (e) { if (DEBUG_PRINT) console.warn('Failed purging wall from presets on deletion', e); }
 });
 
 // Delete linked walls when a tile is deleted (only walls not referenced by other tiles)
