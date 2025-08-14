@@ -74,7 +74,7 @@ export function saveTilePreset(name, tileDocument) {
   return finalName;
 }
 
-export async function applyTilePreset(tileDocument, presetName, { includeSize = true, includeWalls = true } = {}) {
+export async function applyTilePreset(tileDocument, presetName, { includeSize = true, includeWalls = false } = {}) {
   if (!tileDocument || !presetName) return;
   const all = loadAllPresets();
   const preset = all[presetName];
@@ -88,7 +88,12 @@ export async function applyTilePreset(tileDocument, presetName, { includeSize = 
   }
   if (data.flags && Object.keys(data.flags).length) {
     for (const [k, v] of Object.entries(data.flags)) {
-      if (!includeWalls && (k === 'linkedWallIds' || k === 'linkedWallAnchors')) continue;
+      // Skip linked walls unless explicitly allowed AND the target tile currently has no walls.
+      if ((k === 'linkedWallIds' || k === 'linkedWallAnchors')) {
+        if (!includeWalls) continue;
+        const existing = tileDocument.getFlag(MODULE_ID, k === 'linkedWallIds' ? 'linkedWallIds' : 'linkedWallAnchors');
+        if (existing && Array.isArray(existing) && existing.length) continue; // don't overwrite existing walls
+      }
       update[`flags.${MODULE_ID}.${k}`] = v;
     }
   }

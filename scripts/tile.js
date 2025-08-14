@@ -146,7 +146,8 @@ async function handleRenderTileConfig(app, html, data) {
   applyBtn.on('click', async () => {
     const sel = selectEl.val();
     if (!sel) { ui.notifications.warn('Select a preset first'); return; }
-    await applyTilePreset(app.object, String(sel));
+    // Step 3: apply without walls to avoid wall stealing until full logic implemented
+    await applyTilePreset(app.object, String(sel), { includeSize: true, includeWalls: false });
     ui.notifications.info(game.i18n.localize('isometric-perspective.tile_presets_applied'));
   });
   delBtn.on('click', () => {
