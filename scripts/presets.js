@@ -117,8 +117,11 @@ export async function applyTilePreset(tileDocument, presetName, { includeSize = 
       const existing = tileDocument.getFlag(MODULE_ID, 'linkedWallIds') || [];
       if (Array.isArray(existing) && existing.length) return; // respect existing walls
       const anchors = data.flags?.linkedWallAnchors || {};
-      const oldIds = data.flags?.linkedWallIds || [];
-      if (!anchors || !oldIds.length) return;
+      let oldIds = data.flags?.linkedWallIds || [];
+      if ((!anchors || !Object.keys(anchors).length) && DEBUG_PRINT) console.warn('Preset apply: no anchors found, skipping wall cloning');
+      if (!anchors || !Object.keys(anchors).length) return;
+      // Fallback: if linkedWallIds empty but we have anchor keys, derive from anchor keys
+      if (!oldIds.length) oldIds = Object.keys(anchors);
       const wallMeta = data.wallMeta || {};
       const tx = Number(tileDocument.x) || 0;
       const ty = Number(tileDocument.y) || 0;
@@ -157,12 +160,21 @@ export async function applyTilePreset(tileDocument, presetName, { includeSize = 
       const newIds = created.map(w => w.id);
       const newAnchors = {};
       for (let i = 0; i < newIds.length; i++) {
-        const rel = idToRel[oldIds[i]] || Object.values(anchors)[i];
+        // Attempt to match by order; fallback to first remaining unmatched rel
+        const oldId = oldIds[i];
+        let rel = idToRel[oldId];
+        if (!rel) {
+          // Fallback: assign next available anchor relation not yet used
+            for (const k of Object.keys(anchors)) {
+              if (!Object.values(newAnchors).includes(anchors[k])) { rel = anchors[k]; break; }
+            }
+        }
         if (rel) newAnchors[newIds[i]] = rel;
       }
       await tileDocument.setFlag(MODULE_ID, 'linkedWallIds', newIds);
       await tileDocument.setFlag(MODULE_ID, 'linkedWallAnchors', newAnchors);
       await tileDocument.setFlag(MODULE_ID, 'linkedWallAnchorsBasis', 'bottom');
+      if (DEBUG_PRINT) console.log('Cloned walls for preset', presetName, { created: newIds, anchors: newAnchors });
     } catch (e) { if (DEBUG_PRINT) console.warn('Wall cloning failed in applyTilePreset', e); }
   }
 }

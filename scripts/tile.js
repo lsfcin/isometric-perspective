@@ -161,6 +161,25 @@ async function handleRenderTileConfig(app, html, data) {
     if (!sel) { ui.notifications.warn('Select a preset first'); return; }
     await applyTilePreset(app.object, String(sel), { includeSize: true, includeWalls: includeWallsChk.prop('checked') });
     ui.notifications.info(game.i18n.localize('isometric-perspective.tile_presets_applied'));
+    // UI sync: re-render form values without forcing user to reopen
+    try {
+      // Pull latest flags
+      const doc = app.object; // may have been updated
+      html.find('input[name="flags.isometric-perspective.offsetX"]').val(doc.getFlag(MODULE_ID,'offsetX') ?? 0);
+      html.find('input[name="flags.isometric-perspective.offsetY"]').val(doc.getFlag(MODULE_ID,'offsetY') ?? 0);
+      html.find('input[name="flags.isometric-perspective.scale"]').val(doc.getFlag(MODULE_ID,'scale') ?? 1).trigger('input');
+      html.find('input[name="flags.isometric-perspective.tokenFlipped"]').prop('checked', !!doc.getFlag(MODULE_ID,'tokenFlipped'));
+      html.find('input[name="flags.isometric-perspective.OccludingTile"]').prop('checked', !!doc.getFlag(MODULE_ID,'OccludingTile'));
+      const alpha = doc.getFlag(MODULE_ID,'OcclusionAlpha');
+      if (alpha !== undefined) {
+        const occ = html.find('input[name="flags.isometric-perspective.OcclusionAlpha"]');
+        occ.val(alpha);
+        occ.closest('.form-fields').find('.range-value').text(alpha);
+      }
+      // Walls list
+      const wallIds = doc.getFlag(MODULE_ID,'linkedWallIds') || [];
+      html.find('input[name="flags.isometric-perspective.linkedWallIds"]').val(Array.isArray(wallIds)? wallIds.join(', '): wallIds);
+    } catch (e) { if (DEBUG_PRINT) console.warn('Preset UI sync failed', e); }
   });
   delBtn.on('click', () => {
     const sel = selectEl.val();
