@@ -54,7 +54,7 @@
     <p class="notes">{{localize 'isometric-perspective.tile_occluding_hint'}}</p>
   </div>
 
-  <div class="form-group occlusion-alpha-group" style="display: {{#if isOccluding}}flex{{else}}none{{/if}};">
+  <div class="form-group occlusion-alpha-group" style="display: none;">
     <label>{{localize 'isometric-perspective.tile_occlusion_opacity_name'}}</label>
     <div class="form-fields">
       <input type="range" name="flags.isometric-perspective.OcclusionAlpha"
@@ -77,6 +77,31 @@
     <button type="button" class="select-wall"><i class="fas fa-plug"></i> {{localize 'isometric-perspective.tile_link_wall_select_wall'}}</button>
     <button type="button" class="clear-wall"><i class="fa-solid fa-burst"></i> {{localize 'isometric-perspective.tile_link_wall_clear_wall'}}</button>
     <p class="notes">{{localize 'isometric-perspective.tile_link_wall_hint'}}</p>
+  </div>
+
+  <hr>
+
+  <!-- Tile Presets Minimal UI -->
+  <h3>{{localize 'isometric-perspective.tile_presets_section'}}</h3>
+  <div class="form-group">
+    <label>{{localize 'isometric-perspective.tile_presets_select_label'}}</label>
+    <div class="form-fields">
+      <select name="flags.isometric-perspective.presetSelect" class="iso-preset-select">
+        <option value="">{{localize 'isometric-perspective.tile_presets_select_placeholder'}}</option>
+        {{#each presets}}
+          <option value="{{this.name}}">{{this.name}}</option>
+        {{/each}}
+      </select>
+      <button type="button" class="apply-preset">{{localize 'isometric-perspective.tile_presets_apply_button'}}</button>
+    </div>
+  </div>
+  <div class="form-group">
+    <label>{{localize 'isometric-perspective.tile_presets_name_label'}}</label>
+    <div class="form-fields">
+      <input type="text" name="flags.isometric-perspective.presetName" value="" placeholder="New preset name" />
+      <button type="button" class="save-preset">{{localize 'isometric-perspective.tile_presets_save_button'}}</button>
+      <button type="button" class="delete-preset">{{localize 'isometric-perspective.tile_presets_delete_button'}}</button>
+    </div>
   </div>
 
   <style>

@@ -1,4 +1,5 @@
 import { MODULE_ID, DEBUG_PRINT } from './main.js';
+import { getTilePresets, saveTilePreset, applyTilePreset, deleteTilePreset } from './presets.js';
 import { applyIsometricTransformation } from './transform.js';
 
 export function registerTileConfig() {
@@ -15,6 +16,8 @@ async function handleRenderTileConfig(app, html, data) {
   const wallIdsString = Array.isArray(linkedWallIds) ? linkedWallIds.join(', ') : linkedWallIds;
 
   // Carrega o template HTML para a nova aba
+  const presetsObj = getTilePresets();
+  const presets = Object.values(presetsObj).sort((a,b)=> a.name.localeCompare(b.name));
   const tabHtml = await renderTemplate("modules/isometric-perspective/templates/tile-config.html", {
   // Default should be unchecked/false so opening the config doesn't disable isometric tiles
   isoDisabled: app.object.getFlag(MODULE_ID, 'isoTileDisabled') ?? 0,
@@ -24,7 +27,8 @@ async function handleRenderTileConfig(app, html, data) {
     offsetY: app.object.getFlag(MODULE_ID, 'offsetY') ?? 0,
     linkedWallIds: wallIdsString,
     isOccluding: app.object.getFlag(MODULE_ID, 'OccludingTile') ?? false,
-    occlusionAlpha: app.object.getFlag(MODULE_ID, 'OcclusionAlpha') ?? 1
+    occlusionAlpha: app.object.getFlag(MODULE_ID, 'OcclusionAlpha') ?? 1,
+    presets
   });
 
   // Adiciona a nova aba ao menu
@@ -117,6 +121,43 @@ async function handleRenderTileConfig(app, html, data) {
   syncOccGroup();
   occludingCheckbox.on('change', () => {
     syncOccGroup();
+  });
+
+  // --- Presets UI logic (minimal) ---
+  const selectEl = html.find('select.iso-preset-select');
+  const nameInput = html.find('input[name="flags.isometric-perspective.presetName"]');
+  const saveBtn = html.find('button.save-preset');
+  const applyBtn = html.find('button.apply-preset');
+  const delBtn = html.find('button.delete-preset');
+  saveBtn.on('click', () => {
+    const nm = nameInput.val();
+    if (!nm) { ui.notifications.warn('Name required'); return; }
+    const final = saveTilePreset(String(nm), app.object);
+    if (final) {
+      ui.notifications.info(game.i18n.localize('isometric-perspective.tile_presets_saved'));
+      nameInput.val('');
+      // Refresh select (simplest: rebuild options)
+      const all = Object.values(getTilePresets()).sort((a,b)=> a.name.localeCompare(b.name));
+      selectEl.empty();
+      selectEl.append(`<option value="">${game.i18n.localize('isometric-perspective.tile_presets_select_placeholder')}</option>`);
+      for (const p of all) selectEl.append(`<option value="${p.name}">${p.name}</option>`);
+    }
+  });
+  applyBtn.on('click', async () => {
+    const sel = selectEl.val();
+    if (!sel) { ui.notifications.warn('Select a preset first'); return; }
+    await applyTilePreset(app.object, String(sel));
+    ui.notifications.info(game.i18n.localize('isometric-perspective.tile_presets_applied'));
+  });
+  delBtn.on('click', () => {
+    const sel = selectEl.val();
+    if (!sel) { ui.notifications.warn('Select a preset to delete'); return; }
+    deleteTilePreset(String(sel));
+    ui.notifications.info(game.i18n.localize('isometric-perspective.tile_presets_deleted'));
+    const all = Object.values(getTilePresets()).sort((a,b)=> a.name.localeCompare(b.name));
+    selectEl.empty();
+    selectEl.append(`<option value="">${game.i18n.localize('isometric-perspective.tile_presets_select_placeholder')}</option>`);
+    for (const p of all) selectEl.append(`<option value="${p.name}">${p.name}</option>`);
   });
 
   // Live update for Isometric Scale slider label near that slider only

@@ -10,6 +10,7 @@ import { isoToCartesian, cartesianToIso } from './utils.js';
 import { registerOverlayHooks } from './overlay.js';
 
 import { registerOcclusionConfig } from './occlusion.js';
+import { registerTilePresetStorage } from './presets.js';
 
 // ---------- CONSTANTS ----------
 const MODULE_ID = "isometric-perspective";
@@ -171,6 +172,7 @@ Hooks.once("init", function() {
   registerDynamicTileConfig();
   registerSortingConfig();
   registerOcclusionConfig();
+  registerTilePresetStorage(); // Step 1: hidden storage for tile presets
 
   // Define global debug flags
   if (game.settings.get(MODULE_ID, "debug"))
