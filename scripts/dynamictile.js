@@ -592,9 +592,11 @@ function getTileBottomCornerGridXY(tile) {
     // Bottom-left in top-down corresponds to bottom corner in isometric tile art
     // Use the tile bottom-left in scene coordinates: (x, y + height)
     const x = tile.document.x;
-    const y = tile.document.y + tile.document.height;
+    // Subtract a tiny epsilon so a tile whose bottom edge lies exactly on a grid line
+    // is classified into the cell above, matching token centers standing on it.
+    const yBottomEdge = tile.document.y + tile.document.height - 0.0001;
     const gx = Math.floor(x / gs);
-    const gy = Math.floor(y / gs);
+    const gy = Math.floor(yBottomEdge / gs);
     return { gx, gy };
 }
 
