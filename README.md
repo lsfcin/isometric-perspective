@@ -49,6 +49,26 @@ This fork: https://github.com/lsfcin/isometric-perspective
   - Occluder clones draw on the tokens layer for correct stacking with tokens; non‑occluding clones draw on the tiles layer.
   - Simple grid‑based z‑ordering to keep visuals consistent in isometric scenes.
 
+### Tile Image Presets (New)
+
+An opt‑in lightweight system that automatically remembers isometric adjustments (offsets, scale, flip, occlusion flags, linked walls & anchors) per image filename and reapplies them to future tiles using the same image.
+
+How it works:
+- In the Tile Isometric tab there is a single checkbox: "Store and Use Preset".
+- When checked (default), any meaningful update to the tile (other than pure movement) overwrites a hidden preset keyed by the image file name.
+- Creating a new tile with the same image automatically applies the stored preset (size, flags, and wall clones if the new tile has no walls yet).
+- Linked walls are cloned with preserved relative anchors if Include Walls conditions are met (auto‑apply only when destination tile has none).
+- Deleting a tile removes any uniquely linked cloned walls (walls still referenced by other tiles are kept).
+
+Opting out:
+- Uncheck "Store and Use Preset" on a specific tile to prevent saving future changes and to ignore auto‑application for that tile.
+
+Diagnostics & power‑users:
+- A console helper is exposed (window.ISO_TILE_PRESETS) with get / save / apply / del for manual experimentation.
+- Presets are stored in a hidden world setting and survive restarts.
+
+This replaces earlier, fuller preset UI controls with a minimal workflow focused on zero‑click reuse.
+
 ## Compatibility
 
 - Tested on Foundry VTT v12. Some compatibility paths for v11 are kept where feasible.
