@@ -263,6 +263,9 @@ export function findPresetByImage(tileDocument) {
 
 export async function autoApplyPresetForTile(tileDocument) {
   try {
+  // Respect per-tile opt-out
+  const use = tileDocument.getFlag(MODULE_ID, 'useImagePreset');
+  if (use === false) return false;
     const preset = findPresetByImage(tileDocument);
     if (!preset) return false;
     // Apply including walls by default for auto mode
@@ -307,6 +310,8 @@ Hooks.once('ready', () => {
 
 function upsertImagePresetForTile(tileDocument) {
   try {
+  const use = tileDocument.getFlag(MODULE_ID, 'useImagePreset');
+  if (use === false) return;
     const key = deriveImageKey(tileDocument);
     if (!key) return;
     // Reuse existing preset with same imageKey or create new deterministic name based on filename
@@ -335,4 +340,22 @@ Hooks.on('updateTile', (doc, changes, options, userId) => {
 // Hook tile config submit if needed (redundant with updateTile, but ensures manual form commits propagate)
 Hooks.on('closeTileConfig', (app, html) => {
   try { const doc = app?.object; if (doc) setTimeout(()=> upsertImagePresetForTile(doc), 50); } catch {}
+});
+
+// Delete linked walls when a tile is deleted (only walls not referenced by other tiles)
+Hooks.on('deleteTile', async (tileDocument) => {
+  try {
+    const ids = tileDocument?.getFlag(MODULE_ID, 'linkedWallIds') || [];
+    if (!Array.isArray(ids) || !ids.length) return;
+    const otherTiles = canvas.tiles.placeables.map(t => t.document).filter(td => td.id !== tileDocument.id);
+    const referenced = new Set();
+    for (const ot of otherTiles) {
+      const oids = ot.getFlag(MODULE_ID, 'linkedWallIds') || [];
+      if (Array.isArray(oids)) for (const id of oids) referenced.add(id);
+    }
+    const toDelete = ids.filter(id => !referenced.has(id));
+    if (!toDelete.length) return;
+    await canvas.scene.deleteEmbeddedDocuments('Wall', toDelete);
+    if (DEBUG_PRINT) console.log('Deleted linked walls with tile removal', toDelete);
+  } catch (e) { if (DEBUG_PRINT) console.warn('Failed deleting linked walls on tile deletion', e); }
 });

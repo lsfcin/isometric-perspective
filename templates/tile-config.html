@@ -81,33 +81,13 @@
 
   <hr>
 
-  <!-- Tile Presets Minimal UI -->
-  <h3>{{localize 'isometric-perspective.tile_presets_section'}}</h3>
+  <!-- Simplified Preset Opt-In -->
   <div class="form-group">
-    <label>{{localize 'isometric-perspective.tile_presets_select_label'}}</label>
+    <label>{{localize 'isometric-perspective.tile_preset_autouse_label'}}</label>
     <div class="form-fields">
-      <select name="flags.isometric-perspective.presetSelect" class="iso-preset-select">
-        <option value="">{{localize 'isometric-perspective.tile_presets_select_placeholder'}}</option>
-        {{#each presets}}
-          <option value="{{this.name}}">{{this.name}}</option>
-        {{/each}}
-      </select>
-      <button type="button" class="apply-preset">{{localize 'isometric-perspective.tile_presets_apply_button'}}</button>
+      <input type="checkbox" name="flags.isometric-perspective.useImagePreset" />
     </div>
-  </div>
-  <div class="form-group">
-    <label>{{localize 'isometric-perspective.tile_presets_name_label'}}</label>
-    <div class="form-fields">
-      <input type="text" name="flags.isometric-perspective.presetName" value="" placeholder="New preset name" />
-      <button type="button" class="save-preset">{{localize 'isometric-perspective.tile_presets_save_button'}}</button>
-      <button type="button" class="delete-preset">{{localize 'isometric-perspective.tile_presets_delete_button'}}</button>
-    </div>
-  </div>
-  <div class="form-group">
-    <label>{{localize 'isometric-perspective.tile_presets_include_walls'}}</label>
-    <div class="form-fields">
-      <input type="checkbox" class="preset-include-walls" />
-    </div>
+    <p class="notes">{{localize 'isometric-perspective.tile_preset_autouse_hint'}}</p>
   </div>
 
   <style>

@@ -85,6 +85,8 @@
     "isometric-perspective.tile_presets_include_walls": "Include Walls (if tile has none)",
     "isometric-perspective.tile_presets_overwrite_confirm": "A preset with this name exists. Overwrite?",
     "isometric-perspective.tile_presets_overwritten": "Preset overwritten.",
+    "isometric-perspective.tile_preset_autouse_label": "Store and Use Preset",
+    "isometric-perspective.tile_preset_autouse_hint": "Automatically store changes and apply them to new tiles using the same image.",
     
     "isometric-perspective.__comment7": "Warnings and Error Messages",
     "isometric-perspective.error_test": "Test error message",

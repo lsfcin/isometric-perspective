@@ -1,5 +1,5 @@
 import { MODULE_ID, DEBUG_PRINT } from './main.js';
-import { getTilePresets, saveTilePreset, applyTilePreset, deleteTilePreset, autoApplyPresetForTile } from './presets.js';
+import { autoApplyPresetForTile } from './presets.js';
 import { applyIsometricTransformation } from './transform.js';
 
 export function registerTileConfig() {
@@ -16,8 +16,6 @@ async function handleRenderTileConfig(app, html, data) {
   const wallIdsString = Array.isArray(linkedWallIds) ? linkedWallIds.join(', ') : linkedWallIds;
 
   // Carrega o template HTML para a nova aba
-  const presetsObj = getTilePresets();
-  const presets = Object.values(presetsObj).sort((a,b)=> a.name.localeCompare(b.name));
   const tabHtml = await renderTemplate("modules/isometric-perspective/templates/tile-config.html", {
   // Default should be unchecked/false so opening the config doesn't disable isometric tiles
   isoDisabled: app.object.getFlag(MODULE_ID, 'isoTileDisabled') ?? 0,
@@ -28,7 +26,7 @@ async function handleRenderTileConfig(app, html, data) {
     linkedWallIds: wallIdsString,
     isOccluding: app.object.getFlag(MODULE_ID, 'OccludingTile') ?? false,
     occlusionAlpha: app.object.getFlag(MODULE_ID, 'OcclusionAlpha') ?? 1,
-    presets
+  useImagePreset: app.object.getFlag(MODULE_ID, 'useImagePreset') ?? true
   });
 
   // Adiciona a nova aba ao menu
@@ -123,79 +121,9 @@ async function handleRenderTileConfig(app, html, data) {
     syncOccGroup();
   });
 
-  // --- Presets UI logic (minimal) ---
-  const selectEl = html.find('select.iso-preset-select');
-  const nameInput = html.find('input[name="flags.isometric-perspective.presetName"]');
-  const saveBtn = html.find('button.save-preset');
-  const applyBtn = html.find('button.apply-preset');
-  const delBtn = html.find('button.delete-preset');
-  const includeWallsChk = html.find('input.preset-include-walls');
-  saveBtn.on('click', () => {
-    const nm = nameInput.val();
-    if (!nm) { ui.notifications.warn('Name required'); return; }
-    const existing = getTilePresets();
-    const key = String(nm).trim();
-    if (existing[key]) {
-      const confirmMsg = game.i18n.localize('isometric-perspective.tile_presets_overwrite_confirm');
-      new Dialog({
-        title: 'Overwrite Preset',
-        content: `<p>${confirmMsg}</p>`,
-        buttons: {
-          yes: { label: 'Yes', callback: () => {
-            const savedName = saveTilePreset(key, app.object, { overwrite: true });
-            if (savedName) ui.notifications.info(game.i18n.localize('isometric-perspective.tile_presets_overwritten'));
-            rebuildPresetSelect();
-          }},
-          no: { label: 'No' }
-        },
-        default: 'no'
-      }).render(true);
-      return;
-    }
-    const final = saveTilePreset(key, app.object);
-    if (final) ui.notifications.info(game.i18n.localize('isometric-perspective.tile_presets_saved'));
-    rebuildPresetSelect();
-  });
-  applyBtn.on('click', async () => {
-    const sel = selectEl.val();
-    if (!sel) { ui.notifications.warn('Select a preset first'); return; }
-    await applyTilePreset(app.object, String(sel), { includeSize: true, includeWalls: includeWallsChk.prop('checked') });
-    ui.notifications.info(game.i18n.localize('isometric-perspective.tile_presets_applied'));
-    // UI sync: re-render form values without forcing user to reopen
-    try {
-      // Pull latest flags
-      const doc = app.object; // may have been updated
-      html.find('input[name="flags.isometric-perspective.offsetX"]').val(doc.getFlag(MODULE_ID,'offsetX') ?? 0);
-      html.find('input[name="flags.isometric-perspective.offsetY"]').val(doc.getFlag(MODULE_ID,'offsetY') ?? 0);
-      html.find('input[name="flags.isometric-perspective.scale"]').val(doc.getFlag(MODULE_ID,'scale') ?? 1).trigger('input');
-      html.find('input[name="flags.isometric-perspective.tokenFlipped"]').prop('checked', !!doc.getFlag(MODULE_ID,'tokenFlipped'));
-      html.find('input[name="flags.isometric-perspective.OccludingTile"]').prop('checked', !!doc.getFlag(MODULE_ID,'OccludingTile'));
-      const alpha = doc.getFlag(MODULE_ID,'OcclusionAlpha');
-      if (alpha !== undefined) {
-        const occ = html.find('input[name="flags.isometric-perspective.OcclusionAlpha"]');
-        occ.val(alpha);
-        occ.closest('.form-fields').find('.range-value').text(alpha);
-      }
-      // Walls list
-      const wallIds = doc.getFlag(MODULE_ID,'linkedWallIds') || [];
-      html.find('input[name="flags.isometric-perspective.linkedWallIds"]').val(Array.isArray(wallIds)? wallIds.join(', '): wallIds);
-    } catch (e) { if (DEBUG_PRINT) console.warn('Preset UI sync failed', e); }
-  });
-  delBtn.on('click', () => {
-    const sel = selectEl.val();
-    if (!sel) { ui.notifications.warn('Select a preset to delete'); return; }
-    deleteTilePreset(String(sel));
-    ui.notifications.info(game.i18n.localize('isometric-perspective.tile_presets_deleted'));
-    rebuildPresetSelect();
-  });
-
-  function rebuildPresetSelect() {
-    nameInput.val('');
-    const all = Object.values(getTilePresets()).sort((a,b)=> a.name.localeCompare(b.name));
-    selectEl.empty();
-    selectEl.append(`<option value=\"\">${game.i18n.localize('isometric-perspective.tile_presets_select_placeholder')}</option>`);
-    for (const p of all) selectEl.append(`<option value=\"${p.name}\">${p.name}</option>`);
-  }
+  // Set initial state for simplified preset checkbox
+  const usePresetCheckbox = html.find('input[name="flags.isometric-perspective.useImagePreset"]');
+  usePresetCheckbox.prop('checked', app.object.getFlag(MODULE_ID, 'useImagePreset') ?? true);
 
   // Live update for Isometric Scale slider label near that slider only
   const scaleSlider = html.find('input[name="flags.isometric-perspective.scale"]');
@@ -228,6 +156,13 @@ async function handleRenderTileConfig(app, html, data) {
     if (occAlphaSlider.length) {
       const v = Math.max(0, Math.min(1, parseFloat(occAlphaSlider.val())));
       await app.object.setFlag(MODULE_ID, 'OcclusionAlpha', v);
+    }
+
+    // Persist simplified auto preset usage opt-in
+    if (html.find('input[name="flags.isometric-perspective.useImagePreset"]').prop('checked')) {
+      await app.object.setFlag(MODULE_ID, 'useImagePreset', true);
+    } else {
+      await app.object.setFlag(MODULE_ID, 'useImagePreset', false);
     }
 
     // dynamictile.js linked wall logic
