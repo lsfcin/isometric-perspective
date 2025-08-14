@@ -48,7 +48,7 @@ export function extractTilePreset(tileDocument) {
   for (const k of wanted) {
     try { const v = tileDocument.getFlag(MODULE_ID, k); if (v !== undefined) collected[k] = foundry.utils.duplicate(v); } catch {}
   }
-  // Gather full wall metadata (clone essential properties excluding the coordinates & id)
+  // Gather full wall metadata (clone most properties excluding runtime-only). Keep original 'c' for reference; we'll overwrite.
   let wallMeta = {};
   try {
     const ids = Array.isArray(collected.linkedWallIds) ? collected.linkedWallIds : [];
@@ -56,10 +56,10 @@ export function extractTilePreset(tileDocument) {
       const wall = canvas?.walls?.get(wid);
       if (!wall?.document) continue;
       const raw = wall.document.toObject();
-      // Remove mutable / generated fields we will recreate
-      delete raw._id; // new id will be assigned
-      // We will replace c anyway when applying, but keep original for reference if needed
-      // Keep raw.c as original anchor reference (optional)
+      // Strip volatile fields
+      delete raw._id;
+      delete raw.sort; // sorting will be handled by Foundry
+      // Keep flags & door-related fields intact
       wallMeta[wid] = raw;
     }
   } catch {}
@@ -125,43 +125,40 @@ export async function applyTilePreset(tileDocument, presetName, { includeSize = 
       const tw = Number(tileDocument.width) || 1;
       const th = Number(tileDocument.height) || 1;
       const bottomY = ty + th;
-      const entries = Object.entries(anchors);
-      if (!entries.length) return;
+      const seen = new Set();
       const createData = [];
-      for (const [oldId, rel] of entries) {
+      const idToRel = {};
+      for (const oldId of oldIds) {
+        if (seen.has(oldId)) continue; // avoid duplicates
+        seen.add(oldId);
+        const rel = anchors[oldId];
         if (!rel || !rel.a || !rel.b) continue;
         const ax = tx + (rel.a.dx * tw);
         const ay = bottomY - (rel.a.dy * th);
         const bx = tx + (rel.b.dx * tw);
         const by = bottomY - (rel.b.dy * th);
         let meta = wallMeta[oldId] || {};
-        // Backward compatibility: older presets stored only {door, ds}
-        if (Object.keys(meta).every(k => ['door','ds','c'].includes(k))) {
-          meta = { door: meta.door ?? 0, ds: meta.ds ?? 0 };
-        }
-        const wallData = {
-          c: [ax, ay, bx, by],
-          door: meta.door ?? 0,
-          ds: meta.ds ?? 0,
-          move: meta.move,
-          sight: meta.sight ?? meta.sense, // Foundry versions may differ
-          sound: meta.sound,
-          light: meta.light,
-          flags: meta.flags || {}
-        };
-        // Remove undefined to avoid schema warnings
-        for (const k of Object.keys(wallData)) {
-          if (wallData[k] === undefined) delete wallData[k];
-        }
+        // Backward compatibility: minimal meta
+        const minimal = Object.keys(meta).every(k => ['door','ds','c'].includes(k));
+        if (minimal) meta = { door: meta.door ?? 0, ds: meta.ds ?? 0 };
+        // Start with meta clone
+        const wallData = foundry.utils.duplicate(meta);
+        // Overwrite coordinates
+        wallData.c = [ax, ay, bx, by];
+        // Sanitize reserved fields
+        delete wallData._id; delete wallData.id; delete wallData.sort;
+        // Some schemas use 'sight' others 'sense'; keep whichever exists
+        if (wallData.sense && !wallData.sight) wallData.sight = wallData.sense;
         createData.push(wallData);
+        idToRel[oldId] = rel;
       }
       if (!createData.length) return;
       const created = await canvas.scene.createEmbeddedDocuments('Wall', createData);
       const newIds = created.map(w => w.id);
       const newAnchors = {};
-      for (let i = 0; i < created.length; i++) {
-        const rel = entries[i]?.[1];
-        if (rel) newAnchors[created[i].id] = rel; // reuse relative anchors
+      for (let i = 0; i < newIds.length; i++) {
+        const rel = idToRel[oldIds[i]] || Object.values(anchors)[i];
+        if (rel) newAnchors[newIds[i]] = rel;
       }
       await tileDocument.setFlag(MODULE_ID, 'linkedWallIds', newIds);
       await tileDocument.setFlag(MODULE_ID, 'linkedWallAnchors', newAnchors);
