@@ -16,9 +16,17 @@ export function registerTileConfig() {
       if (!data) return;
       const t = (data.type || '').toLowerCase();
       if (t === 'tile' || t === 'tiles') {
-        // Treat the raw drop coordinates as the intended bottom-left anchor position.
-        // We'll correct the created tile AFTER presets & transforms settle.
-        lastTileDesiredBottomLeft = { x: Number(data.x) || 0, y: Number(data.y) || 0, ts: performance.now() };
+  // Compute the bottom-left corner of the hovered grid cell and use that as the desired bottom-left.
+  // Rationale: user wants the tile rectangle to sit slightly below the cursor, aligned to the grid cell's bottom edge.
+  const rawX = Number(data.x) || 0;
+  const rawY = Number(data.y) || 0;
+  const gridSize = (canvas?.grid?.size) || (canvas?.dimensions?.size) || 1;
+  // Identify the cell containing the cursor
+  const cellX = Math.floor(rawX / gridSize);
+  const cellY = Math.floor(rawY / gridSize);
+  const snappedBLX = cellX * gridSize;            // left edge of cell
+  const snappedBLY = (cellY + 1) * gridSize;      // bottom edge of cell
+  lastTileDesiredBottomLeft = { x: snappedBLX, y: snappedBLY, ts: performance.now() };
       }
     } catch {}
   });
@@ -40,8 +48,9 @@ async function handleRenderTileConfig(app, html, data) {
     offsetX: app.object.getFlag(MODULE_ID, 'offsetX') ?? 0,
     offsetY: app.object.getFlag(MODULE_ID, 'offsetY') ?? 0,
     linkedWallIds: wallIdsString,
-    isOccluding: app.object.getFlag(MODULE_ID, 'OccludingTile') ?? false,
-    occlusionAlpha: app.object.getFlag(MODULE_ID, 'OcclusionAlpha') ?? 1,
+  isOccluding: app.object.getFlag(MODULE_ID, 'OccludingTile') ?? false,
+  // Fallback 0.8 opacity when not yet defined
+  occlusionAlpha: app.object.getFlag(MODULE_ID, 'OcclusionAlpha') ?? 0.8,
   useImagePreset: app.object.getFlag(MODULE_ID, 'useImagePreset') ?? true
   });
 
@@ -63,6 +72,8 @@ async function handleRenderTileConfig(app, html, data) {
   const occludingCheckbox = html.find('input[name="flags.isometric-perspective.OccludingTile"]');
   const occAlphaSlider = html.find('input[name="flags.isometric-perspective.OcclusionAlpha"]');
   const occAlphaGroup = html.find('.occlusion-alpha-group');
+  // Preset checkbox (declare early so we can set default before later code references)
+  const usePresetCheckbox = html.find('input[name="flags.isometric-perspective.useImagePreset"]');
   
   isoTileCheckbox.prop("checked", app.object.getFlag(MODULE_ID, "isoTileDisabled"));
   flipCheckbox.prop("checked", app.object.getFlag(MODULE_ID, "tokenFlipped"));
@@ -72,11 +83,15 @@ async function handleRenderTileConfig(app, html, data) {
   const existingAlpha = app.object.getFlag(MODULE_ID, 'OcclusionAlpha');
   const existingUsePreset = app.object.getFlag(MODULE_ID, 'useImagePreset');
   const occludingDefault = existingOccluding === undefined ? true : existingOccluding;
-  const alphaDefault = existingAlpha === undefined ? 0.85 : existingAlpha;
+  // Treat a value of exactly 1 as the engine's implicit starting point and still apply our module default 0.8
+  const alphaDefault = (existingAlpha === undefined || existingAlpha === 1) ? 0.8 : existingAlpha;
   const usePresetDefault = existingUsePreset === undefined ? true : existingUsePreset;
 
   occludingCheckbox.prop("checked", occludingDefault);
   occAlphaSlider.val(alphaDefault);
+  // Update displayed numeric label beside slider
+  const occAlphaValueSpan = occAlphaSlider.closest('.form-fields').find('.range-value');
+  occAlphaValueSpan.text(alphaDefault);
   if (usePresetCheckbox && usePresetCheckbox.length) usePresetCheckbox.prop('checked', usePresetDefault);
 
   // On Flip Tile toggle: invert Y offset and swap rectangle width/height; keep Isometric tab active
@@ -137,7 +152,7 @@ async function handleRenderTileConfig(app, html, data) {
     const container = $(this).closest('.form-fields');
     container.find('.range-value').text(this.value);
   });
-  // Show/hide occlusion alpha group based on occluding checkbox
+  // Show/hide occlusion alpha group based on occluding checkbox (respect default)
   const syncOccGroup = () => {
     const checked = occludingCheckbox.prop('checked');
     occAlphaGroup.css('display', checked ? 'flex' : 'none');
@@ -147,9 +162,10 @@ async function handleRenderTileConfig(app, html, data) {
     syncOccGroup();
   });
 
-  // Set initial state for simplified preset checkbox
-  const usePresetCheckbox = html.find('input[name="flags.isometric-perspective.useImagePreset"]');
-  usePresetCheckbox.prop('checked', app.object.getFlag(MODULE_ID, 'useImagePreset') ?? true);
+  // Set initial state for simplified preset checkbox (already defaulted above)
+  if (usePresetCheckbox && usePresetCheckbox.length && usePresetCheckbox.prop('checked') === false && usePresetDefault) {
+    usePresetCheckbox.prop('checked', true);
+  }
 
   // Live update for Isometric Scale slider label near that slider only
   const scaleSlider = html.find('input[name="flags.isometric-perspective.scale"]');
@@ -267,7 +283,8 @@ function handleCreateTile(tileDocument) {
       const usePreset = tileDocument.getFlag(MODULE_ID, 'useImagePreset');
       const needs = {};
       if (occluding === undefined) needs.OccludingTile = true;
-      if (alpha === undefined) needs.OcclusionAlpha = 0.85;
+  // Foundry (or previous versions) may yield an initial stored alpha of 1; treat that as baseline and replace with our module default 0.8
+  if (alpha === undefined || alpha === 1) needs.OcclusionAlpha = 0.8;
       if (usePreset === undefined) needs.useImagePreset = true;
       if (Object.keys(needs).length) {
         await tileDocument.update({ flags: { [MODULE_ID]: needs } });
