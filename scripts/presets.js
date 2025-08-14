@@ -297,3 +297,42 @@ Hooks.once('ready', () => {
   };
   if (DEBUG_PRINT) console.log('Isometric Tile Presets API ready: window.ISO_TILE_PRESETS');
 });
+
+// --- Auto Update Logic (Step 14) ---
+// Strategy:
+// 1. Each tile image filename acts as canonical preset key (imageKey).
+// 2. On any tile update (except pure positional movement) we regenerate and overwrite that preset silently.
+// 3. On tile creation we auto-apply (already handled) ensuring walls & size propagate to future clones.
+// 4. We ignore updates that only change x or y.
+
+function upsertImagePresetForTile(tileDocument) {
+  try {
+    const key = deriveImageKey(tileDocument);
+    if (!key) return;
+    // Reuse existing preset with same imageKey or create new deterministic name based on filename
+    const all = getTilePresets();
+    let existingName = null;
+    for (const [n,p] of Object.entries(all)) { if (p.imageKey === key) { existingName = n; break; } }
+    const baseName = key.replace(/\.[a-z0-9]+$/i,'');
+    const name = existingName || baseName;
+    saveTilePreset(name, tileDocument, { overwrite: true });
+    if (DEBUG_PRINT) console.log('Auto-updated image preset', name, 'from tile change');
+  } catch (e) { if (DEBUG_PRINT) console.warn('Failed auto-updating preset from tile change', e); }
+}
+
+Hooks.on('updateTile', (doc, changes, options, userId) => {
+  try {
+    if (!doc?.id) return;
+    // Ignore pure movement (only x/y or z) to reduce churn
+    const keys = Object.keys(changes);
+    const meaningful = keys.filter(k => !['x','y','z','rotation'].includes(k));
+    if (!meaningful.length && !(changes.flags && Object.keys(changes.flags).length)) return;
+    // Defer slightly to ensure walls or dependent flags updated
+    setTimeout(()=> upsertImagePresetForTile(doc), 50);
+  } catch {}
+});
+
+// Hook tile config submit if needed (redundant with updateTile, but ensures manual form commits propagate)
+Hooks.on('closeTileConfig', (app, html) => {
+  try { const doc = app?.object; if (doc) setTimeout(()=> upsertImagePresetForTile(doc), 50); } catch {}
+});
