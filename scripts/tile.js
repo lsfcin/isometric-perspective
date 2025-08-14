@@ -9,7 +9,23 @@ export function registerTileConfig() {
   Hooks.on("updateTile", handleUpdateTile);
   Hooks.on("refreshTile", handleRefreshTile);
   Hooks.on("updateWall", handleUpdateWall);
+
+  // Track the raw drop point for tile creation so we can correct placement
+  Hooks.on('dropCanvasData', (_canvas, data) => {
+    try {
+      if (!data) return;
+      const t = (data.type || '').toLowerCase();
+      if (t === 'tile' || t === 'tiles') {
+        // Treat the raw drop coordinates as the intended bottom-left anchor position.
+        // We'll correct the created tile AFTER presets & transforms settle.
+        lastTileDesiredBottomLeft = { x: Number(data.x) || 0, y: Number(data.y) || 0, ts: performance.now() };
+      }
+    } catch {}
+  });
 }
+
+// Last recorded intended bottom-left point for a tile (from the most recent drop)
+let lastTileDesiredBottomLeft = null;
 
 async function handleRenderTileConfig(app, html, data) {
   const linkedWallIds = app.object.getFlag(MODULE_ID, 'linkedWallIds') || [];
@@ -225,12 +241,44 @@ async function handleRenderTileConfig(app, html, data) {
 function handleCreateTile(tileDocument) {
   const tile = canvas.tiles.get(tileDocument.id);
   if (!tile) return;
-  
+
   const scene = tile.scene;
   const isSceneIsometric = scene.getFlag(MODULE_ID, "isometricEnabled");
+
   requestAnimationFrame(() => applyIsometricTransformation(tile, isSceneIsometric));
-  // Attempt auto-apply preset based on image file name (includes walls)
   setTimeout(() => { autoApplyPresetForTile(tileDocument); }, 50);
+
+  // Schedule post-processing alignment passes so final bottom-left sits at drop point
+  if (lastTileDesiredBottomLeft && isSceneIsometric) {
+    const record = lastTileDesiredBottomLeft;
+    if (!record.ts || (performance.now() - record.ts) < 2500) {
+      const passes = [90, 180, 360]; // ms after create to attempt alignment (after preset & transforms)
+      for (const delay of passes) {
+        setTimeout(() => {
+          try {
+            // Tile might have been deleted or moved manually; only adjust if still near original.
+            const doc = tileDocument;
+            if (!doc?.parent) return;
+            const desiredBLX = record.x;
+            const desiredBLY = record.y;
+            // Compute current bottom-left
+            const curX = doc.x;
+            const curY = doc.y;
+            const curBLX = curX;
+            const curBLY = curY + doc.height;
+            const dx = desiredBLX - curBLX;
+            const dy = desiredBLY - curBLY;
+            // Skip if already very close
+            if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) return;
+            // Apply correction: x shifts by dx; top-left y shifts by dy
+            doc.update({ x: curX + dx, y: curY + dy }, { animate: false, [MODULE_ID]: { dropAlign: true } });
+          } catch (e) { if (DEBUG_PRINT) console.warn('Deferred tile alignment failed', e); }
+        }, delay);
+      }
+    }
+    // Clear after scheduling so subsequent tiles can capture new point
+    lastTileDesiredBottomLeft = null;
+  }
 }
 
 // Hooks.on("updateTile")
