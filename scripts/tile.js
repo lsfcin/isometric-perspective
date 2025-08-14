@@ -1,5 +1,5 @@
 import { MODULE_ID, DEBUG_PRINT } from './main.js';
-import { getTilePresets, saveTilePreset, applyTilePreset, deleteTilePreset } from './presets.js';
+import { getTilePresets, saveTilePreset, applyTilePreset, deleteTilePreset, autoApplyPresetForTile } from './presets.js';
 import { applyIsometricTransformation } from './transform.js';
 
 export function registerTileConfig() {
@@ -294,6 +294,8 @@ function handleCreateTile(tileDocument) {
   const scene = tile.scene;
   const isSceneIsometric = scene.getFlag(MODULE_ID, "isometricEnabled");
   requestAnimationFrame(() => applyIsometricTransformation(tile, isSceneIsometric));
+  // Attempt auto-apply preset based on image file name (includes walls)
+  setTimeout(() => { autoApplyPresetForTile(tileDocument); }, 50);
 }
 
 // Hooks.on("updateTile")

@@ -36,6 +36,24 @@ export function getTilePresets() {
   return loadAllPresets();
 }
 
+function deriveImageKey(tileDocument) {
+  try {
+    const src = tileDocument?.texture?.src || tileDocument?.document?.texture?.src || tileDocument?.img || tileDocument?.texture || tileDocument?.data?.img;
+    if (!src) return null;
+    const clean = src.split('?')[0].split('#')[0];
+    const parts = clean.split('/');
+    const file = parts.pop() || clean;
+    return file.toLowerCase();
+  } catch { return null; }
+}
+
+function attachImageKey(presetEntry, tileDocument) {
+  if (!presetEntry) return presetEntry;
+  const key = deriveImageKey(tileDocument);
+  if (key) presetEntry.imageKey = key;
+  return presetEntry;
+}
+
 export function extractTilePreset(tileDocument) {
   if (!tileDocument) return null;
   const flags = tileDocument.getFlag(MODULE_ID, '') || {}; // bulk fetch not supported; collect individually
@@ -104,7 +122,9 @@ export function saveTilePreset(name, tileDocument, { overwrite = false } = {}) {
   }
   const data = extractTilePreset(tileDocument);
   const now = Date.now();
-  all[finalName] = { name: finalName, created: now, updated: now, data };
+  const entry = { name: finalName, created: now, updated: now, data };
+  attachImageKey(entry, tileDocument);
+  all[finalName] = entry;
   saveAllPresets(all);
   if (DEBUG_PRINT) console.log(`Saved tile preset '${finalName}'`, all[finalName]);
   return finalName;
@@ -193,6 +213,28 @@ export async function applyTilePreset(tileDocument, presetName, { includeSize = 
       if (DEBUG_PRINT) console.log('Cloned walls for preset', presetName, { created: newIds, anchors: newAnchors });
     } catch (e) { if (DEBUG_PRINT) console.warn('Wall cloning failed in applyTilePreset', e); }
   }
+}
+
+export function findPresetByImage(tileDocument) {
+  const key = deriveImageKey(tileDocument);
+  if (!key) return null;
+  const all = loadAllPresets();
+  for (const p of Object.values(all)) {
+    if (p?.imageKey === key) return p;
+  }
+  return null;
+}
+
+export async function autoApplyPresetForTile(tileDocument) {
+  try {
+    const preset = findPresetByImage(tileDocument);
+    if (!preset) return false;
+    // Apply including walls by default for auto mode
+    await applyTilePreset(tileDocument, preset.name, { includeSize: true, includeWalls: true });
+    if (DEBUG_PRINT) console.log('Auto-applied image preset', preset.name, 'to tile', tileDocument.id);
+    return true;
+  } catch (e) { if (DEBUG_PRINT) console.warn('autoApplyPresetForTile failed', e); }
+  return false;
 }
 
 export function deleteTilePreset(presetName) {
