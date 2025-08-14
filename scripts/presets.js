@@ -48,6 +48,26 @@ export function extractTilePreset(tileDocument) {
   for (const k of wanted) {
     try { const v = tileDocument.getFlag(MODULE_ID, k); if (v !== undefined) collected[k] = foundry.utils.duplicate(v); } catch {}
   }
+  // If tile has linked walls but no stored anchors, compute anchors now (bottom-left basis)
+  try {
+    if (Array.isArray(collected.linkedWallIds) && collected.linkedWallIds.length && !collected.linkedWallAnchors) {
+      const tx = Number(tileDocument.x) || 0;
+      const ty = Number(tileDocument.y) || 0;
+      const tw = Math.max(1, Number(tileDocument.width) || 1);
+      const th = Math.max(1, Number(tileDocument.height) || 1);
+      const bottomY = ty + th;
+      const anchors = {};
+      for (const wid of collected.linkedWallIds) {
+        const wall = canvas?.walls?.get(wid);
+        if (!wall?.document) continue;
+        const c = wall.document.c || wall.document.data?.c || [0,0,0,0];
+        const ax = Number(c[0])||0, ay=Number(c[1])||0, bx=Number(c[2])||0, by=Number(c[3])||0;
+        const toRel = (x,y)=> ({ dx: (x - tx)/tw, dy: (bottomY - y)/th });
+        anchors[wid] = { a: toRel(ax,ay), b: toRel(bx,by) };
+      }
+      if (Object.keys(anchors).length) collected.linkedWallAnchors = anchors;
+    }
+  } catch (e) { if (DEBUG_PRINT) console.warn('Failed computing anchors during preset extraction', e); }
   // Gather full wall metadata (clone most properties excluding runtime-only). Keep original 'c' for reference; we'll overwrite.
   let wallMeta = {};
   try {
@@ -119,7 +139,7 @@ export async function applyTilePreset(tileDocument, presetName, { includeSize = 
       const anchors = data.flags?.linkedWallAnchors || {};
       let oldIds = data.flags?.linkedWallIds || [];
       if ((!anchors || !Object.keys(anchors).length) && DEBUG_PRINT) console.warn('Preset apply: no anchors found, skipping wall cloning');
-      if (!anchors || !Object.keys(anchors).length) return;
+  if (!anchors || !Object.keys(anchors).length) return; // cannot safely clone without anchors
       // Fallback: if linkedWallIds empty but we have anchor keys, derive from anchor keys
       if (!oldIds.length) oldIds = Object.keys(anchors);
       const wallMeta = data.wallMeta || {};
@@ -137,6 +157,7 @@ export async function applyTilePreset(tileDocument, presetName, { includeSize = 
         seen.add(oldId);
         const rel = anchors[oldId];
         if (!rel || !rel.a || !rel.b) continue;
+  if (DEBUG_PRINT) console.log('Preset apply: cloning wall', oldId, rel);
         const ax = tx + (rel.a.dx * tw);
         const ay = bottomY - (rel.a.dy * th);
         const bx = tx + (rel.b.dx * tw);
