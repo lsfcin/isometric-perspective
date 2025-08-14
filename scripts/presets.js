@@ -115,7 +115,7 @@ export async function applyTilePreset(tileDocument, presetName, { includeSize = 
   if (includeWalls) {
     try {
       const existing = tileDocument.getFlag(MODULE_ID, 'linkedWallIds') || [];
-      if (Array.isArray(existing) && existing.length) return; // respect existing walls
+      if (Array.isArray(existing) && existing.length) { if (DEBUG_PRINT) console.log('Preset apply: tile already has walls, skipping clone'); return; }
       const anchors = data.flags?.linkedWallAnchors || {};
       let oldIds = data.flags?.linkedWallIds || [];
       if ((!anchors || !Object.keys(anchors).length) && DEBUG_PRINT) console.warn('Preset apply: no anchors found, skipping wall cloning');
@@ -131,6 +131,7 @@ export async function applyTilePreset(tileDocument, presetName, { includeSize = 
       const seen = new Set();
       const createData = [];
       const idToRel = {};
+      const usedOldIds = [];
       for (const oldId of oldIds) {
         if (seen.has(oldId)) continue; // avoid duplicates
         seen.add(oldId);
@@ -154,21 +155,15 @@ export async function applyTilePreset(tileDocument, presetName, { includeSize = 
         if (wallData.sense && !wallData.sight) wallData.sight = wallData.sense;
         createData.push(wallData);
         idToRel[oldId] = rel;
+        usedOldIds.push(oldId);
       }
       if (!createData.length) return;
       const created = await canvas.scene.createEmbeddedDocuments('Wall', createData);
       const newIds = created.map(w => w.id);
       const newAnchors = {};
       for (let i = 0; i < newIds.length; i++) {
-        // Attempt to match by order; fallback to first remaining unmatched rel
-        const oldId = oldIds[i];
-        let rel = idToRel[oldId];
-        if (!rel) {
-          // Fallback: assign next available anchor relation not yet used
-            for (const k of Object.keys(anchors)) {
-              if (!Object.values(newAnchors).includes(anchors[k])) { rel = anchors[k]; break; }
-            }
-        }
+        const oldId = usedOldIds[i];
+        const rel = idToRel[oldId];
         if (rel) newAnchors[newIds[i]] = rel;
       }
       await tileDocument.setFlag(MODULE_ID, 'linkedWallIds', newIds);
