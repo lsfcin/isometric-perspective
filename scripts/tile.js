@@ -67,7 +67,17 @@ async function handleRenderTileConfig(app, html, data) {
   isoTileCheckbox.prop("checked", app.object.getFlag(MODULE_ID, "isoTileDisabled"));
   flipCheckbox.prop("checked", app.object.getFlag(MODULE_ID, "tokenFlipped"));
   linkedWallInput.val(wallIdsString);
-  occludingCheckbox.prop("checked", app.object.getFlag(MODULE_ID, "OccludingTile"));
+  // Apply defaults for Place Tile flow (flags may be undefined before creation)
+  const existingOccluding = app.object.getFlag(MODULE_ID, 'OccludingTile');
+  const existingAlpha = app.object.getFlag(MODULE_ID, 'OcclusionAlpha');
+  const existingUsePreset = app.object.getFlag(MODULE_ID, 'useImagePreset');
+  const occludingDefault = existingOccluding === undefined ? true : existingOccluding;
+  const alphaDefault = existingAlpha === undefined ? 0.85 : existingAlpha;
+  const usePresetDefault = existingUsePreset === undefined ? true : existingUsePreset;
+
+  occludingCheckbox.prop("checked", occludingDefault);
+  occAlphaSlider.val(alphaDefault);
+  if (usePresetCheckbox && usePresetCheckbox.length) usePresetCheckbox.prop('checked', usePresetDefault);
 
   // On Flip Tile toggle: invert Y offset and swap rectangle width/height; keep Isometric tab active
   flipCheckbox.on('change', async () => {
