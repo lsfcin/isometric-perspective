@@ -55,13 +55,13 @@ export function extractTilePreset(tileDocument) {
   };
 }
 
-export function saveTilePreset(name, tileDocument) {
+export function saveTilePreset(name, tileDocument, { overwrite = false } = {}) {
   if (!name || !tileDocument) return;
   const all = loadAllPresets();
   let finalName = name.trim();
   if (!finalName) finalName = 'Preset';
-  // Ensure uniqueness
-  if (all[finalName]) {
+  // Ensure uniqueness unless overwrite
+  if (all[finalName] && !overwrite) {
     let i = 2;
     while (all[`${finalName} (${i})`]) i++;
     finalName = `${finalName} (${i})`;

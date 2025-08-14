@@ -129,25 +129,37 @@ async function handleRenderTileConfig(app, html, data) {
   const saveBtn = html.find('button.save-preset');
   const applyBtn = html.find('button.apply-preset');
   const delBtn = html.find('button.delete-preset');
+  const includeWallsChk = html.find('input.preset-include-walls');
   saveBtn.on('click', () => {
     const nm = nameInput.val();
     if (!nm) { ui.notifications.warn('Name required'); return; }
-    const final = saveTilePreset(String(nm), app.object);
-    if (final) {
-      ui.notifications.info(game.i18n.localize('isometric-perspective.tile_presets_saved'));
-      nameInput.val('');
-      // Refresh select (simplest: rebuild options)
-      const all = Object.values(getTilePresets()).sort((a,b)=> a.name.localeCompare(b.name));
-      selectEl.empty();
-      selectEl.append(`<option value="">${game.i18n.localize('isometric-perspective.tile_presets_select_placeholder')}</option>`);
-      for (const p of all) selectEl.append(`<option value="${p.name}">${p.name}</option>`);
+    const existing = getTilePresets();
+    const key = String(nm).trim();
+    if (existing[key]) {
+      const confirmMsg = game.i18n.localize('isometric-perspective.tile_presets_overwrite_confirm');
+      new Dialog({
+        title: 'Overwrite Preset',
+        content: `<p>${confirmMsg}</p>`,
+        buttons: {
+          yes: { label: 'Yes', callback: () => {
+            const savedName = saveTilePreset(key, app.object, { overwrite: true });
+            if (savedName) ui.notifications.info(game.i18n.localize('isometric-perspective.tile_presets_overwritten'));
+            rebuildPresetSelect();
+          }},
+          no: { label: 'No' }
+        },
+        default: 'no'
+      }).render(true);
+      return;
     }
+    const final = saveTilePreset(key, app.object);
+    if (final) ui.notifications.info(game.i18n.localize('isometric-perspective.tile_presets_saved'));
+    rebuildPresetSelect();
   });
   applyBtn.on('click', async () => {
     const sel = selectEl.val();
     if (!sel) { ui.notifications.warn('Select a preset first'); return; }
-    // Step 3: apply without walls to avoid wall stealing until full logic implemented
-    await applyTilePreset(app.object, String(sel), { includeSize: true, includeWalls: false });
+    await applyTilePreset(app.object, String(sel), { includeSize: true, includeWalls: includeWallsChk.prop('checked') });
     ui.notifications.info(game.i18n.localize('isometric-perspective.tile_presets_applied'));
   });
   delBtn.on('click', () => {
@@ -155,11 +167,16 @@ async function handleRenderTileConfig(app, html, data) {
     if (!sel) { ui.notifications.warn('Select a preset to delete'); return; }
     deleteTilePreset(String(sel));
     ui.notifications.info(game.i18n.localize('isometric-perspective.tile_presets_deleted'));
+    rebuildPresetSelect();
+  });
+
+  function rebuildPresetSelect() {
+    nameInput.val('');
     const all = Object.values(getTilePresets()).sort((a,b)=> a.name.localeCompare(b.name));
     selectEl.empty();
-    selectEl.append(`<option value="">${game.i18n.localize('isometric-perspective.tile_presets_select_placeholder')}</option>`);
-    for (const p of all) selectEl.append(`<option value="${p.name}">${p.name}</option>`);
-  });
+    selectEl.append(`<option value=\"\">${game.i18n.localize('isometric-perspective.tile_presets_select_placeholder')}</option>`);
+    for (const p of all) selectEl.append(`<option value=\"${p.name}\">${p.name}</option>`);
+  }
 
   // Live update for Isometric Scale slider label near that slider only
   const scaleSlider = html.find('input[name="flags.isometric-perspective.scale"]');

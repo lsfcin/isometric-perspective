@@ -82,6 +82,9 @@
     "isometric-perspective.tile_presets_saved": "Preset salvo.",
     "isometric-perspective.tile_presets_applied": "Preset aplicado.",
     "isometric-perspective.tile_presets_deleted": "Preset excluído.",
+    "isometric-perspective.tile_presets_include_walls": "Incluir Paredes (se tile não tiver)",
+    "isometric-perspective.tile_presets_overwrite_confirm": "Já existe um preset com esse nome. Sobrescrever?",
+    "isometric-perspective.tile_presets_overwritten": "Preset sobrescrito.",
 
     "isometric-perspective.__comment7": "Avisos e Mensagens de Erro",
     "isometric-perspective.error_test": "Mensagem de erro de teste",
