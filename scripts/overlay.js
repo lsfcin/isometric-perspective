@@ -1,3 +1,5 @@
+// Use MODULE_ID string literal to avoid circular import with main.js for wall highlighting
+const MODULE_ID = 'isometric-perspective';
 let hoverLayer = null;
 
 function bringOverlayToTop() {
@@ -221,6 +223,8 @@ function drawTileSelectionOverlay(tile) {
 
     hoverLayer.addChild(g);
   bringOverlayToTop();
+  // Also (re)draw linked walls so they persist through selection redraws
+  drawLinkedWallsOverlay(tile);
   } catch (e) {
     console.error('Tile selection overlay draw error:', e);
   }
@@ -231,6 +235,8 @@ function clearTileSelectionOverlay(tile) {
   const name = `TileSelection-${tile.id}`;
   const existing = hoverLayer.getChildByName(name);
   if (existing) hoverLayer.removeChild(existing);
+  const wg = hoverLayer.getChildByName(`TileWalls-${tile.id}`);
+  if (wg) hoverLayer.removeChild(wg);
 }
 
 // Hover overlay: orange rectangle while pointer is over the tile
@@ -268,3 +274,90 @@ function clearTileHoverOverlay(tile) {
   const existing = hoverLayer.getChildByName(name);
   if (existing) hoverLayer.removeChild(existing);
 }
+
+// ------------ Linked Walls Overlay (visual only) ------------
+function drawLinkedWallsOverlay(tile) {
+  try {
+    if (!hoverLayer || !tile?.document) return;
+    const idsRaw = tile.document.getFlag(MODULE_ID, 'linkedWallIds');
+    if (!idsRaw) return;
+    const ids = Array.isArray(idsRaw) ? idsRaw : String(idsRaw).split(',').map(s => s.trim()).filter(Boolean);
+    if (!ids.length) return;
+    // Remove old overlay
+    const old = hoverLayer.getChildByName(`TileWalls-${tile.id}`);
+    if (old) hoverLayer.removeChild(old);
+    const group = new PIXI.Container();
+    group.name = `TileWalls-${tile.id}`;
+    group.eventMode = 'passive';
+  // Foundry default style approximations: normal(white), door(purple), secret(orange), invisible(cyan)
+  const COLOR_NORMAL = 0xffffff;
+  const COLOR_DOOR = 0x8000ff;      // purple
+  const COLOR_SECRET = 0xffa500;    // orange-ish
+  const COLOR_INVISIBLE = 0x00ffff; // cyan
+    for (const wid of ids) {
+      const wall = canvas.walls.get(wid);
+      if (!wall) continue;
+      // Version-agnostic endpoint extraction
+      let ax, ay, bx, by;
+      if (wall.A && wall.B) { // v11 style
+        ax = wall.A.x; ay = wall.A.y; bx = wall.B.x; by = wall.B.y;
+      } else if (wall.edge?.a && wall.edge?.b) { // v10 style
+        ax = wall.edge.a.x; ay = wall.edge.a.y; bx = wall.edge.b.x; by = wall.edge.b.y;
+      } else continue;
+  const g = new PIXI.Graphics();
+      g.eventMode = 'passive';
+  // Determine color by wall type flags
+  const doorType = wall.document?.door; // 0 none, 1 door, 2 secret door per Foundry
+  const light = wall.document?.light;
+  let color = COLOR_NORMAL;
+  // if (doorType === 1) color = COLOR_DOOR;
+  // else if (doorType === 2) color = COLOR_SECRET;
+  // else if (wall.document?.ds !== undefined && wall.document?.ds < 1) color = COLOR_INVISIBLE; // fallback heuristic
+  
+  // color = COLOR_NORMAL;
+  
+  g.lineStyle(5, 0x000000, 0.35);
+  g.moveTo(ax, ay); g.lineTo(bx, by);
+  g.lineStyle(3, color, 0.95);
+  g.moveTo(ax, ay); g.lineTo(bx, by);
+  g.beginFill(color, 0.95); g.drawCircle(ax, ay, 4); g.drawCircle(bx, by, 4); g.endFill();
+      group.addChild(g);
+    }
+    if (group.children.length) {
+      hoverLayer.addChild(group);
+      bringOverlayToTop();
+    }
+  } catch (e) { console.warn('drawLinkedWallsOverlay failed', e); }
+}
+
+function clearLinkedWallsOverlay(tile) {
+  if (!hoverLayer || !tile) return;
+  const ex = hoverLayer.getChildByName(`TileWalls-${tile.id}`);
+  if (ex) hoverLayer.removeChild(ex);
+}
+
+// Redraw when walls change
+Hooks.on('updateWall', (wallDoc) => {
+  try {
+    const selected = canvas.tiles?.controlled || [];
+    for (const t of selected) {
+      const ids = t.document.getFlag(MODULE_ID, 'linkedWallIds') || [];
+      if (ids.includes(wallDoc.id)) drawLinkedWallsOverlay(t);
+    }
+  } catch {}
+});
+Hooks.on('deleteWall', (wallDoc) => {
+  try {
+    const selected = canvas.tiles?.controlled || [];
+    for (const t of selected) {
+      const ids = t.document.getFlag(MODULE_ID, 'linkedWallIds') || [];
+      if (ids.includes(wallDoc.id)) drawLinkedWallsOverlay(t);
+    }
+  } catch {}
+});
+
+// Extend existing tile control behavior (hook also in register but safe to duplicate listener)
+Hooks.on('controlTile', (tile, controlled) => {
+  try { if (controlled) drawLinkedWallsOverlay(tile); else clearLinkedWallsOverlay(tile); }
+  catch {}
+});
