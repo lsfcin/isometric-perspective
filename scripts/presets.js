@@ -68,7 +68,8 @@ export function extractTilePreset(tileDocument) {
   }
   // If tile has linked walls but no stored anchors, compute anchors now (bottom-left basis)
   try {
-    if (Array.isArray(collected.linkedWallIds) && collected.linkedWallIds.length && !collected.linkedWallAnchors) {
+    const hadLinked = Array.isArray(collected.linkedWallIds) && collected.linkedWallIds.length;
+    if (hadLinked && !collected.linkedWallAnchors) {
       const tx = Number(tileDocument.x) || 0;
       const ty = Number(tileDocument.y) || 0;
       const tw = Math.max(1, Number(tileDocument.width) || 1);
@@ -84,6 +85,30 @@ export function extractTilePreset(tileDocument) {
         anchors[wid] = { a: toRel(ax,ay), b: toRel(bx,by) };
       }
       if (Object.keys(anchors).length) collected.linkedWallAnchors = anchors;
+    } else if (!hadLinked) {
+      // Fallback discovery: find walls whose both endpoints lie within (or on edge of) tile bounds (tolerance)
+      const tx = Number(tileDocument.x) || 0;
+      const ty = Number(tileDocument.y) || 0;
+      const tw = Math.max(1, Number(tileDocument.width) || 1);
+      const th = Math.max(1, Number(tileDocument.height) || 1);
+      const bottomY = ty + th;
+      const tolerance = 2; // px
+      const inside = (x,y)=> x >= tx - tolerance && x <= tx + tw + tolerance && y >= ty - tolerance && y <= ty + th + tolerance;
+      const anchors = {};
+      const discovered = [];
+      for (const w of canvas?.walls?.placeables || []) {
+        const c = w.document?.c || w.document?.data?.c || [0,0,0,0];
+        const ax = Number(c[0])||0, ay=Number(c[1])||0, bx=Number(c[2])||0, by=Number(c[3])||0;
+        if (!(inside(ax,ay) && inside(bx,by))) continue; // require both endpoints for now to reduce false positives
+        discovered.push(w.id);
+        const toRel = (x,y)=> ({ dx: (x - tx)/tw, dy: (bottomY - y)/th });
+        anchors[w.id] = { a: toRel(ax,ay), b: toRel(bx,by) };
+      }
+      if (discovered.length) {
+        collected.linkedWallIds = discovered;
+        collected.linkedWallAnchors = anchors;
+        if (DEBUG_PRINT) console.log('Preset extract fallback discovered walls', discovered);
+      }
     }
   } catch (e) { if (DEBUG_PRINT) console.warn('Failed computing anchors during preset extraction', e); }
   // Gather full wall metadata (clone most properties excluding runtime-only). Keep original 'c' for reference; we'll overwrite.
