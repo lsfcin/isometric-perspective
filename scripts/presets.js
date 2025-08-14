@@ -154,14 +154,25 @@ export async function applyTilePreset(tileDocument, presetName, { includeSize = 
   // Clone walls only if requested, tile currently has none, and preset had anchor data
   if (includeWalls) {
     try {
-      const existing = tileDocument.getFlag(MODULE_ID, 'linkedWallIds') || [];
-      if (Array.isArray(existing) && existing.length) { if (DEBUG_PRINT) console.log('Preset apply: tile already has walls, skipping clone'); return; }
+      let existing = tileDocument.getFlag(MODULE_ID, 'linkedWallIds') || [];
       const anchors = data.flags?.linkedWallAnchors || {};
       let oldIds = data.flags?.linkedWallIds || [];
       if ((!anchors || !Object.keys(anchors).length) && DEBUG_PRINT) console.warn('Preset apply: no anchors found, skipping wall cloning');
   if (!anchors || !Object.keys(anchors).length) return; // cannot safely clone without anchors
       // Fallback: if linkedWallIds empty but we have anchor keys, derive from anchor keys
       if (!oldIds.length) oldIds = Object.keys(anchors);
+      // Duplication scenario: existing wall IDs exactly match preset source IDs -> treat as needing fresh clones
+      if (Array.isArray(existing) && existing.length) {
+        const sameSet = existing.every(id => oldIds.includes(id));
+        if (sameSet) {
+          if (DEBUG_PRINT) console.log('Preset apply: duplication detected, re-cloning walls');
+          await tileDocument.setFlag(MODULE_ID, 'linkedWallIds', []);
+          existing = [];
+        } else {
+          if (DEBUG_PRINT) console.log('Preset apply: tile already has different walls, skipping clone');
+          return;
+        }
+      }
       const wallMeta = data.wallMeta || {};
       const tx = Number(tileDocument.x) || 0;
       const ty = Number(tileDocument.y) || 0;
