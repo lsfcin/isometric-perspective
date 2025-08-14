@@ -1,5 +1,5 @@
 import { MODULE_ID, DEBUG_PRINT } from './main.js';
-import { autoApplyPresetForTile } from './presets.js';
+import { autoApplyPresetForTile, findPresetByImage } from './presets.js';
 import { applyIsometricTransformation } from './transform.js';
 
 export function registerTileConfig() {
@@ -247,6 +247,24 @@ function handleCreateTile(tileDocument) {
 
   requestAnimationFrame(() => applyIsometricTransformation(tile, isSceneIsometric));
   setTimeout(() => { autoApplyPresetForTile(tileDocument); }, 50);
+  // Immediately apply default flags if no preset already exists for this image
+  (async () => {
+    try {
+      const preset = findPresetByImage(tileDocument);
+      if (preset) return; // existing preset will be auto-applied shortly
+      const occluding = tileDocument.getFlag(MODULE_ID, 'OccludingTile');
+      const alpha = tileDocument.getFlag(MODULE_ID, 'OcclusionAlpha');
+      const usePreset = tileDocument.getFlag(MODULE_ID, 'useImagePreset');
+      const needs = {};
+      if (occluding === undefined) needs.OccludingTile = true;
+      if (alpha === undefined) needs.OcclusionAlpha = 0.85;
+      if (usePreset === undefined) needs.useImagePreset = true;
+      if (Object.keys(needs).length) {
+        await tileDocument.update({ flags: { [MODULE_ID]: needs } });
+        if (DEBUG_PRINT) console.log('Applied immediate default tile flags', tileDocument.id, needs);
+      }
+    } catch (e) { if (DEBUG_PRINT) console.warn('Immediate default tile flag assignment failed', e); }
+  })();
 
   // Schedule post-processing alignment passes so final bottom-left sits at drop point
   if (lastTileDesiredBottomLeft && isSceneIsometric) {
