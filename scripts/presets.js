@@ -48,10 +48,26 @@ export function extractTilePreset(tileDocument) {
   for (const k of wanted) {
     try { const v = tileDocument.getFlag(MODULE_ID, k); if (v !== undefined) collected[k] = foundry.utils.duplicate(v); } catch {}
   }
+  // Gather full wall metadata (clone essential properties excluding the coordinates & id)
+  let wallMeta = {};
+  try {
+    const ids = Array.isArray(collected.linkedWallIds) ? collected.linkedWallIds : [];
+    for (const wid of ids) {
+      const wall = canvas?.walls?.get(wid);
+      if (!wall?.document) continue;
+      const raw = wall.document.toObject();
+      // Remove mutable / generated fields we will recreate
+      delete raw._id; // new id will be assigned
+      // We will replace c anyway when applying, but keep original for reference if needed
+      // Keep raw.c as original anchor reference (optional)
+      wallMeta[wid] = raw;
+    }
+  } catch {}
   return {
     width: tileDocument.width,
     height: tileDocument.height,
-    flags: collected
+    flags: collected,
+    wallMeta
   };
 }
 
@@ -88,16 +104,70 @@ export async function applyTilePreset(tileDocument, presetName, { includeSize = 
   }
   if (data.flags && Object.keys(data.flags).length) {
     for (const [k, v] of Object.entries(data.flags)) {
-      // Skip linked walls unless explicitly allowed AND the target tile currently has no walls.
-      if ((k === 'linkedWallIds' || k === 'linkedWallAnchors')) {
-        if (!includeWalls) continue;
-        const existing = tileDocument.getFlag(MODULE_ID, k === 'linkedWallIds' ? 'linkedWallIds' : 'linkedWallAnchors');
-        if (existing && Array.isArray(existing) && existing.length) continue; // don't overwrite existing walls
-      }
+      // We'll rebuild walls separately if cloning; skip direct ID/anchor injection in that case
+      if (k === 'linkedWallIds' || k === 'linkedWallAnchors') continue;
       update[`flags.${MODULE_ID}.${k}`] = v;
     }
   }
   await canvas.scene.updateEmbeddedDocuments('Tile', [update]);
+
+  // Clone walls only if requested, tile currently has none, and preset had anchor data
+  if (includeWalls) {
+    try {
+      const existing = tileDocument.getFlag(MODULE_ID, 'linkedWallIds') || [];
+      if (Array.isArray(existing) && existing.length) return; // respect existing walls
+      const anchors = data.flags?.linkedWallAnchors || {};
+      const oldIds = data.flags?.linkedWallIds || [];
+      if (!anchors || !oldIds.length) return;
+      const wallMeta = data.wallMeta || {};
+      const tx = Number(tileDocument.x) || 0;
+      const ty = Number(tileDocument.y) || 0;
+      const tw = Number(tileDocument.width) || 1;
+      const th = Number(tileDocument.height) || 1;
+      const bottomY = ty + th;
+      const entries = Object.entries(anchors);
+      if (!entries.length) return;
+      const createData = [];
+      for (const [oldId, rel] of entries) {
+        if (!rel || !rel.a || !rel.b) continue;
+        const ax = tx + (rel.a.dx * tw);
+        const ay = bottomY - (rel.a.dy * th);
+        const bx = tx + (rel.b.dx * tw);
+        const by = bottomY - (rel.b.dy * th);
+        let meta = wallMeta[oldId] || {};
+        // Backward compatibility: older presets stored only {door, ds}
+        if (Object.keys(meta).every(k => ['door','ds','c'].includes(k))) {
+          meta = { door: meta.door ?? 0, ds: meta.ds ?? 0 };
+        }
+        const wallData = {
+          c: [ax, ay, bx, by],
+          door: meta.door ?? 0,
+          ds: meta.ds ?? 0,
+          move: meta.move,
+          sight: meta.sight ?? meta.sense, // Foundry versions may differ
+          sound: meta.sound,
+          light: meta.light,
+          flags: meta.flags || {}
+        };
+        // Remove undefined to avoid schema warnings
+        for (const k of Object.keys(wallData)) {
+          if (wallData[k] === undefined) delete wallData[k];
+        }
+        createData.push(wallData);
+      }
+      if (!createData.length) return;
+      const created = await canvas.scene.createEmbeddedDocuments('Wall', createData);
+      const newIds = created.map(w => w.id);
+      const newAnchors = {};
+      for (let i = 0; i < created.length; i++) {
+        const rel = entries[i]?.[1];
+        if (rel) newAnchors[created[i].id] = rel; // reuse relative anchors
+      }
+      await tileDocument.setFlag(MODULE_ID, 'linkedWallIds', newIds);
+      await tileDocument.setFlag(MODULE_ID, 'linkedWallAnchors', newAnchors);
+      await tileDocument.setFlag(MODULE_ID, 'linkedWallAnchorsBasis', 'bottom');
+    } catch (e) { if (DEBUG_PRINT) console.warn('Wall cloning failed in applyTilePreset', e); }
+  }
 }
 
 export function deleteTilePreset(presetName) {
