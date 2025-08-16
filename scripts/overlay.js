@@ -306,7 +306,7 @@ function drawLinkedWallsOverlay(tile) {
       g.eventMode = 'passive';
  
   let color = COLOR_NORMAL;
-  
+
   
   g.lineStyle(5, 0x000000, 0.35);
   g.moveTo(ax, ay); g.lineTo(bx, by);
