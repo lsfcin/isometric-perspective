@@ -29,6 +29,7 @@ Core credits: all foundational work belongs to the original author.
 
 ### Batch Controls
 * Toolbar buttons for Increase / Decrease Occlusion Opacity on selected tiles.
+* Bring Selected Tiles to Front / Send Selected Tiles to Back — batch reorders by adjusting underlying Tile `sort` values while preserving relative order inside the selection.
 * Batch Flip respects the same anchor logic and updates linked walls.
 
 ### Image Presets (Per Filename)
@@ -56,7 +57,10 @@ Open a Tile’s configuration => “Isometric” tab:
 * Enter wall IDs (or use Attach UI if present) to link walls; they then follow transforms.
 * “Store and Use Preset” keeps / reuses adjustments for identical image filenames.
 
-Toolbar (Tiles layer) provides batch opacity adjust and flip.
+Toolbar (Tiles layer) provides:
+* Bring to Front / Send to Back (ordering)
+* Increase / Decrease Occlusion Opacity
+* Flip Selected Tiles
 
 Console helper (for debugging): `window.ISO_TILE_PRESETS` with `get / save(name) / apply(name) / del(name)`.
 
@@ -68,6 +72,7 @@ Console helper (for debugging): `window.ISO_TILE_PRESETS` with `get / save(name)
 * Movement / flight path line drawn in the player’s color.
 * Resize of the tile’s rectangle does not distort isometric artwork.
 * Attached (linked) walls follow tile move, resize, and flip using anchored relative coordinates.
+* Bring to Front / Send to Back ordering buttons (batch update Tile.sort).
 
 ### Planned / In Progress
 * Define default settings for newly created tiles (auto‑preset opt‑in, initial scale, occlusion defaults).
@@ -78,7 +83,7 @@ Console helper (for debugging): `window.ISO_TILE_PRESETS` with `get / save(name)
 * Add per‑tile "max height" for occlusion logic (virtual vertical extent cap).
 * Provide optional center‑anchor flip mode.
 * Display & edit linked wall endpoints inline when a tile is selected (direct manipulation handles).
-* Tile reordering UI: move up, to top, move down, to bottom.
+* Additional granular tile reordering (single-step up/down) UI.
 * Dynamic lighting interaction for tiles (light blocking / emission integration).
 * Hide direct elevation display or remap elevation to an internal height offset like tokens.
 * Automatic shadow distance derived from tile height.
