@@ -128,7 +128,25 @@ export function registerDynamicTileConfig() {
     Hooks.on('getSceneControlButtons', (controls) => {
         const tilesCtl = controls.find(b => b.name === 'tiles');
         if (!tilesCtl) return;
+        // Insert our tools in a specific order so new ordering buttons appear just below
+        // existing snapping / opacity increase controls ("dynamic-tile-increase" first).
         tilesCtl.tools.push(
+            {
+                name: 'tile-bring-front',
+                title: 'Bring Selected Tiles to Front',
+                icon: 'fa-solid fa-arrow-up-wide-short',
+                active: true,
+                onClick: () => bringSelectedTilesToFront(),
+                button: true
+            },
+            {
+                name: 'tile-send-back',
+                title: 'Send Selected Tiles to Back',
+                icon: 'fa-solid fa-arrow-down-short-wide',
+                active: true,
+                onClick: () => sendSelectedTilesToBack(),
+                button: true
+            },
             {
                 name: 'dynamic-tile-increase',
                 title: 'Increase Dynamic Tile Opacity',
@@ -190,6 +208,36 @@ async function adjustSelectedTilesOcclusionAlpha(delta = 0.1) {
 }
 export function increaseTilesOpacity() { adjustSelectedTilesOcclusionAlpha(+0.1); }
 export function decreaseTilesOpacity() { adjustSelectedTilesOcclusionAlpha(-0.1); }
+
+// Bring selected tiles to front/back by manipulating their TileDocument.sort values.
+async function bringSelectedTilesToFront() {
+    try {
+        const selected = Array.from(canvas.tiles?.controlled || []);
+        if (!selected.length) return;
+        const allSorts = canvas.tiles.placeables.map(t => typeof t.document?.sort === 'number' ? t.document.sort : 0);
+        const maxSort = allSorts.length ? Math.max(...allSorts) : 0;
+        // Preserve current relative order by sorting by existing sort ascending
+        const ordered = selected.sort((a, b) => (a.document.sort || 0) - (b.document.sort || 0));
+        let next = maxSort + 1;
+        const updates = ordered.map(t => ({ _id: t.document.id, sort: next++ }));
+        await canvas.scene.updateEmbeddedDocuments('Tile', updates);
+    } catch (e) { if (DEBUG_PRINT) console.warn('bringSelectedTilesToFront failed', e); }
+}
+
+async function sendSelectedTilesToBack() {
+    try {
+        const selected = Array.from(canvas.tiles?.controlled || []);
+        if (!selected.length) return;
+        const allSorts = canvas.tiles.placeables.map(t => typeof t.document?.sort === 'number' ? t.document.sort : 0);
+        const minSort = allSorts.length ? Math.min(...allSorts) : 0;
+        // Sort ascending so top-most stays top-most among the moved group (while all move below others)
+        const ordered = selected.sort((a, b) => (a.document.sort || 0) - (b.document.sort || 0));
+        // Assign new sorts strictly below current minimum, preserving relative order
+        let start = minSort - ordered.length;
+        const updates = ordered.map(t => ({ _id: t.document.id, sort: start++ }));
+        await canvas.scene.updateEmbeddedDocuments('Tile', updates);
+    } catch (e) { if (DEBUG_PRINT) console.warn('sendSelectedTilesToBack failed', e); }
+}
 
 // Flip selected tiles around their bottom-left by swapping width/height, keeping bottom edge fixed,
 // toggling the tokenFlipped flag, and inverting offsetY to match the Tile Config behavior.
