@@ -306,15 +306,9 @@ function drawLinkedWallsOverlay(tile) {
       } else continue;
   const g = new PIXI.Graphics();
       g.eventMode = 'passive';
-  // Determine color by wall type flags
-  const doorType = wall.document?.door; // 0 none, 1 door, 2 secret door per Foundry
-  const light = wall.document?.light;
+ 
   let color = COLOR_NORMAL;
-  // if (doorType === 1) color = COLOR_DOOR;
-  // else if (doorType === 2) color = COLOR_SECRET;
-  // else if (wall.document?.ds !== undefined && wall.document?.ds < 1) color = COLOR_INVISIBLE; // fallback heuristic
   
-  // color = COLOR_NORMAL;
   
   g.lineStyle(5, 0x000000, 0.35);
   g.moveTo(ax, ay); g.lineTo(bx, by);
