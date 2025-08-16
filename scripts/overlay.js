@@ -290,7 +290,7 @@ function drawLinkedWallsOverlay(tile) {
     group.name = `TileWalls-${tile.id}`;
     group.eventMode = 'passive';
   // Foundry default style approximations: normal(white), door(purple), secret(orange), invisible(cyan)
-  const COLOR_NORMAL = 0xcccccc;
+  const COLOR_NORMAL = 0xffc864;
 
     for (const wid of ids) {
       const wall = canvas.walls.get(wid);
