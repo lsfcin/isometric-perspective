@@ -1,3 +1,4 @@
+
 import { MODULE_ID, DEBUG_PRINT, FOUNDRY_VERSION } from './main.js';
 import { ISOMETRIC_CONST } from './consts.js';
 
@@ -8,6 +9,50 @@ let tokensLayer;
 let tilesOpacity = 1.0;
 let tokensOpacity = 1.0;
 let lastControlledToken = null;
+// Internal guard & cache for dynamic sort syncing to avoid infinite update loops
+let __applyingDynamicSort = false;
+let __lastSortSignature = '';
+// Precomputed grid z-value matrix (higher means closer to camera per new spec)
+let __gridZValues = null; // 2D array [y][x] -> z
+let __gridCols = 0;
+let __gridRows = 0;
+
+function buildPrecomputedGridZ() {
+    try {
+        const dims = canvas.scene?.dimensions;
+        const gs = canvas.grid?.size || 1;
+        if (!dims || !gs) return;
+        const cols = Math.max(1, Math.floor(dims.width / gs));
+        const rows = Math.max(1, Math.floor(dims.height / gs));
+        // If unchanged size, skip rebuild
+        if (__gridZValues && cols === __gridCols && rows === __gridRows) return;
+        __gridCols = cols; __gridRows = rows;
+        const cells = [];
+        for (let y = 0; y < rows; y++) {
+            for (let x = 0; x < cols; x++) {
+                const d = (cols - 1 - x) + y; // diagonal index from (cols-1,0)
+                cells.push({ x, y, d });
+            }
+        }
+        // Sort: primary by diagonal ascending, secondary by x ascending (per provided sequence)
+        cells.sort((a, b) => (a.d - b.d) || (a.x - b.x));
+        // Assign sequential z-values
+        __gridZValues = Array.from({ length: rows }, () => Array(cols).fill(0));
+        let z = 0;
+        for (const c of cells) {
+            __gridZValues[c.y][c.x] = z++;
+        }
+        if (DEBUG_PRINT) console.log(`${MODULE_ID} precomputed grid Z built (${cols}x${rows}) maxZ=${z - 1}`);
+    } catch (e) {
+        if (DEBUG_PRINT) console.warn('buildPrecomputedGridZ failed', e);
+    }
+}
+
+function getGridZ(gx, gy) {
+    if (!__gridZValues) return null;
+    if (gy < 0 || gy >= __gridRows || gx < 0 || gx >= __gridCols) return null;
+    return __gridZValues[gy][gx];
+}
 
 function clamp01(n) {
     const v = Number(n);
@@ -59,6 +104,13 @@ export function registerDynamicTileConfig() {
 
     // Refresh triggers
     Hooks.on('canvasReady', () => updateAlwaysVisibleElements());
+    Hooks.on('canvasReady', () => buildPrecomputedGridZ());
+    Hooks.on('updateScene', (scene, data) => {
+        if ('width' in data || 'height' in data || (data.grid && data.grid !== canvas.scene?.grid)) {
+            buildPrecomputedGridZ();
+            updateAlwaysVisibleElements();
+        }
+    });
     Hooks.on('canvasTokensRefresh', () => updateAlwaysVisibleElements());
     Hooks.on('updateUser', (user, changes) => {
         if (user.id === game.user.id && 'character' in changes) updateAlwaysVisibleElements();
@@ -346,6 +398,8 @@ function getInitialToken() {
 
 function updateAlwaysVisibleElements() {
     if (!canvas.ready || !alwaysVisibleContainer) return;
+    // Ensure grid z-values ready
+    buildPrecomputedGridZ();
     tilesLayer.removeChildren();
     tokensLayer.removeChildren();
 
@@ -405,10 +459,13 @@ function updateAlwaysVisibleElements() {
     tilesLayer.sortableChildren = false;
     tokensLayer.sortableChildren = true;
     // Overlay layer (if any) is managed separately by overlay.js
+
+    // Reflect dynamic ordering into document .sort fields (tokens + occluding tiles)
+    try { syncDocumentSort(plan); } catch (e) { if (DEBUG_PRINT) console.warn('syncDocumentSort failed', e); }
 }
 
 function computeVisibilityDrawPlan(controlledToken) {
-    const plan = { tiles: [], tokens: [], occluders: [], debugTiles: [], debugTokens: [], hideOriginalTileIds: [] };
+    const plan = { tiles: [], tokens: [], occluders: [], debugTiles: [], debugTokens: [], hideOriginalTileIds: [], tileDepths: {}, tokenDepths: {} };
 
         // Tiles that participate in grid occlusion are those with the 'Occluding Tokens' flag
         const occlusionTilesByFlag = canvas.tiles.placeables.filter(tile => {
@@ -441,7 +498,10 @@ function computeVisibilityDrawPlan(controlledToken) {
         const { gx: tgx, gy: tgy } = getTileBottomCornerGridXY(tile);
         // Collect debug info for tile bottom-corner grid coords
         plan.debugTiles.push({ gx: tgx, gy: tgy, px: tile.document.x, py: tile.document.y + tile.document.height });
-        tileEntries.push({ tile, walls, gx: tgx, gy: tgy, depth: tgx + tgy });
+    plan.debugTiles[plan.debugTiles.length - 1].gz = getGridZ(tgx, tgy);
+    const depth = tgx + tgy;
+    tileEntries.push({ tile, walls, gx: tgx, gy: tgy, depth });
+    plan.tileDepths[tile.id] = depth;
     }
 
     // Gather visible tokens (controlled + others visible from it)
@@ -453,7 +513,9 @@ function computeVisibilityDrawPlan(controlledToken) {
             const { gx, gy } = getTokenGridXY(controlledToken);
             const depth = gx + gy;
             plan.tokens.push({ sprite: controlledSprite, z: depth });
+            if (controlledToken?.id) plan.tokenDepths[controlledToken.id] = depth;
             plan.debugTokens.push({ gx, gy, px: controlledToken.center.x, py: controlledToken.center.y });
+            plan.debugTokens[plan.debugTokens.length - 1].gz = getGridZ(gx, gy);
         }
     }
     for (const token of canvas.tokens.placeables) {
@@ -466,27 +528,16 @@ function computeVisibilityDrawPlan(controlledToken) {
             const { gx, gy } = getTokenGridXY(token);
             const depth = gx + gy;
             plan.tokens.push({ sprite: tokenSprite, z: depth });
+            if (token.id) plan.tokenDepths[token.id] = depth;
             plan.debugTokens.push({ gx, gy, px: token.center.x, py: token.center.y });
+            plan.debugTokens[plan.debugTokens.length - 1].gz = getGridZ(gx, gy);
         }
     }
 
-    let controlledDepth = null;
-    let cGX = null, cGY = null;
-    if (controlledToken?.mesh) {
-        const g = getTokenGridXY(controlledToken);
-        cGX = g.gx; cGY = g.gy; controlledDepth = cGX + cGY;
-    }
+    // Always add a base clone for each occluding tile; we'll add per-token masked occluders later.
     for (const te of tileEntries) {
-        const occludesControlled = controlledToken ? (cGX >= te.gx && cGY <= te.gy) : false;
-        if (occludesControlled) {
-            // Represent the whole tile using an occluder clone at controlled token depth
-            const occ = cloneTileSprite(te.tile, te.walls, true);
-            if (occ && controlledDepth !== null) plan.occluders.push({ sprite: occ, z: controlledDepth + 0.5 });
-        } else {
-            // For non-occluding tiles, place a base clone on the tiles layer
-            const clonedSprite = cloneTileSprite(te.tile, te.walls, false);
-            if (clonedSprite) plan.tiles.push({ sprite: clonedSprite });
-        }
+        const clonedSprite = cloneTileSprite(te.tile, te.walls, false);
+        if (clonedSprite) plan.tiles.push({ sprite: clonedSprite });
     }
 
     // Occluder clones on tokens layer (for proper stacking), only for tiles that actually occlude each token
@@ -496,16 +547,61 @@ function computeVisibilityDrawPlan(controlledToken) {
         const depth = gx + gy;
         const occludingTiles = tileEntries.filter(te => gx >= te.gx && gy <= te.gy);
         for (const te of occludingTiles) {
-            // If we already added an occluder at controlled depth, skip duplication for the controlled token
-            if (controlledToken && tk.id === controlledToken.id && hideSet.has(te.tile.id)) continue;
-            const occ = cloneTileSprite(te.tile, te.walls, true);
-            if (occ) plan.occluders.push({ sprite: occ, z: depth + 0.5 });
+            const masked = createMaskedOccluderForToken(te.tile, tk);
+            if (!masked) continue;
+            // Add mask slightly below sprite so z-order consistent
+            plan.occluders.push({ sprite: masked.mask, z: depth + 0.24 });
+            plan.occluders.push({ sprite: masked.sprite, z: depth + 0.25 });
         }
     }
 
     // Reflect the final hide set into the plan
     plan.hideOriginalTileIds = Array.from(hideSet);
     return plan;
+}
+
+// Synchronize the underlying TileDocument.sort and TokenDocument.sort values with the
+// dynamic visibility ordering computed for occlusion, so configuration dialogs reflect
+// the current visual stacking (informational only; clones still govern actual draw).
+function syncDocumentSort(plan) {
+    if (__applyingDynamicSort) return;
+    const scene = canvas.scene;
+    if (!scene) return;
+
+    // Build desired sort values based on depth (gx+gy). We normalize into an integer space
+    // multiplying by 100 to leave gaps should future adjustments need in-between values.
+    const tokenUpdates = [];
+    const tileUpdates = [];
+
+    // Tokens
+    for (const [tid, depth] of Object.entries(plan.tokenDepths || {})) {
+        const tokenDoc = scene.tokens.get(tid);
+        if (!tokenDoc) continue;
+        const desired = Math.round(depth * 100 + 10); // +10 to leave space below tiles at same depth
+        if (tokenDoc.sort !== desired) tokenUpdates.push({ _id: tid, sort: desired });
+    }
+
+    // Occluding tiles only (those in plan.tileDepths)
+    for (const [tileId, depth] of Object.entries(plan.tileDepths || {})) {
+        const tileDoc = scene.tiles.get(tileId);
+        if (!tileDoc) continue;
+        // Place tiles slightly in front of tokens at same base depth so their occluder clones conceptually lead
+        const desired = Math.round(depth * 100 + 50);
+        if (tileDoc.sort !== desired) tileUpdates.push({ _id: tileId, sort: desired });
+    }
+
+    if (!tokenUpdates.length && !tileUpdates.length) return;
+
+    // Signature to avoid redundant updates
+    const signature = [...tokenUpdates.map(u => `K${u._id}:${u.sort}`), ...tileUpdates.map(u => `T${u._id}:${u.sort}`)].sort().join('|');
+    if (signature === __lastSortSignature) return;
+    __lastSortSignature = signature;
+
+    __applyingDynamicSort = true;
+    const promises = [];
+    if (tileUpdates.length) promises.push(scene.updateEmbeddedDocuments('Tile', tileUpdates));
+    if (tokenUpdates.length) promises.push(scene.updateEmbeddedDocuments('Token', tokenUpdates));
+    Promise.allSettled(promises).finally(() => { __applyingDynamicSort = false; });
 }
 
 function addDebugOverlays(plan) {
@@ -516,7 +612,8 @@ function addDebugOverlays(plan) {
         const tokenStyle = new PIXI.TextStyle({ fontSize: 12, fill: '#ffff00', stroke: '#000000', strokeThickness: 3 });
 
             for (const t of plan.debugTiles || []) {
-                const txt = new PIXI.Text(`T(${t.gx},${t.gy})`, tileStyle);
+                const label = typeof t.gz === 'number' ? `T(${t.gx},${t.gy}) z:${t.gz}` : `T(${t.gx},${t.gy})`;
+                const txt = new PIXI.Text(label, tileStyle);
                 txt.anchor.set(0.5, 1);
                 txt.position.set(t.px, t.py - 4);
                 txt.zIndex = (t.gx ?? 0) + (t.gy ?? 0);
@@ -525,7 +622,8 @@ function addDebugOverlays(plan) {
             }
 
         for (const k of plan.debugTokens || []) {
-            const txt = new PIXI.Text(`K(${k.gx},${k.gy})`, tokenStyle);
+            const label = typeof k.gz === 'number' ? `K(${k.gx},${k.gy}) z:${k.gz}` : `K(${k.gx},${k.gy})`;
+            const txt = new PIXI.Text(label, tokenStyle);
             txt.anchor.set(0.5, 1);
             txt.position.set(k.px, k.py - 16);
             txt.zIndex = (k.gx ?? 0) + (k.gy ?? 0);
@@ -700,4 +798,34 @@ function selectNearestGridOccluder(tiles, gx, gy) {
         }
     }
     return best;
+}
+
+// Create a cropped occluder clone for a specific token by intersecting bounds.
+// This prevents the tile occluder from hiding unrelated tokens that are not actually behind it.
+function createMaskedOccluderForToken(tilePlaceable, tokenPlaceable) {
+    try {
+        if (!tilePlaceable?.mesh || !tokenPlaceable?.mesh) return null;
+        const tileBounds = safeGetBounds(tilePlaceable.mesh);
+        const tokenBounds = safeGetBounds(tokenPlaceable.mesh);
+        if (!tileBounds || !tokenBounds) return null;
+        const ix = Math.max(tileBounds.x, tokenBounds.x);
+        const iy = Math.max(tileBounds.y, tokenBounds.y);
+        const iw = Math.min(tileBounds.x + tileBounds.width, tokenBounds.x + tokenBounds.width) - ix;
+        const ih = Math.min(tileBounds.y + tileBounds.height, tokenBounds.y + tokenBounds.height) - iy;
+        if (iw <= 0 || ih <= 0) return null; // no overlap
+        const sprite = cloneTileSprite(tilePlaceable, getLinkedWalls(tilePlaceable), true);
+        if (!sprite) return null;
+        // Mask in scene coordinates (same parent as sprite will get)
+        const mask = new PIXI.Graphics();
+        mask.beginFill(0xffffff, 1);
+        mask.drawRect(ix, iy, iw, ih);
+        mask.endFill();
+        mask.baseAlpha = 1; // unaffected by opacity scaling routine
+        mask.opacityGroup = 'tiles';
+        sprite.mask = mask;
+        return { sprite, mask };
+    } catch (e) {
+        if (DEBUG_PRINT) console.warn('createMaskedOccluderForToken failed', e);
+        return null;
+    }
 }
