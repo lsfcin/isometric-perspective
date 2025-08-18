@@ -481,53 +481,54 @@ function updateAlwaysVisibleElements() {
 function computeVisibilityDrawPlan(controlledToken) {
     const plan = { tiles: [], tokens: [], occluders: [], debugTiles: [], debugTokens: [], hideOriginalTileIds: [], tileDepths: {}, tokenDepths: {} };
 
-        // Tiles that participate in grid occlusion are those with the 'Occluding Tokens' flag
-        const occlusionTilesByFlag = canvas.tiles.placeables.filter(tile => {
-            return !!tile?.document?.getFlag(MODULE_ID, 'OccludingTile');
-        });
+    const allTiles = canvas.tiles.placeables || [];
+    const foregroundTiles = [];
+    const backgroundTiles = [];
+    for (const tile of allTiles) {
+        const layer = tile.document.getFlag(MODULE_ID, 'layer') || 'foreground';
+        if (layer === 'background') backgroundTiles.push(tile); else foregroundTiles.push(tile);
+    }
 
-    // Manual ordering only: respect TileDocument.sort; ignore elevation or any dynamic sort
-        const tilesSorted = [...occlusionTilesByFlag].sort((a, b) => {
-        const sa = typeof a.document?.sort === 'number' ? a.document.sort : 0;
-        const sb = typeof b.document?.sort === 'number' ? b.document.sort : 0;
-        if (sa !== sb) return sa - sb;
-        const ida = String(a.document?.id || '');
-        const idb = String(b.document?.id || '');
-        return ida.localeCompare(idb);
-    });
+    // Background tiles: keep originals; do not hide or clone; add debug only.
+    for (const tile of backgroundTiles) {
+        const { gx, gy } = getTileBottomCornerGridXY(tile);
+        const gz = getGridZ(gx, gy);
+        plan.debugTiles.push({ gx, gy, px: tile.document.x, py: tile.document.y + tile.document.height, gz, finalZ: gz, elev: Number(tile.document?.elevation)||0, layer: 'background' });
+    }
 
-    // Prepare tiles and collect grid/elevation data
-    const tileEntries = [];
-    for (const tile of tilesSorted) {
+    // Foreground tiles: hide originals and prepare for interleaving & occlusion
+    const foregroundEntries = [];
+    for (const tile of foregroundTiles) {
         const walls = getLinkedWalls(tile);
         const anyDoorOpen = Array.isArray(walls) && walls.some(w => (w?.document?.door === 1 || w?.document?.door === 2) && w?.document?.ds === 1);
         if (anyDoorOpen) { plan.hideOriginalTileIds.push(tile.id); continue; }
         plan.hideOriginalTileIds.push(tile.id);
-        const { gx: tgx, gy: tgy } = getTileBottomCornerGridXY(tile);
-        const layer = tile.document.getFlag(MODULE_ID, 'layer') || 'foreground';
+        const { gx, gy } = getTileBottomCornerGridXY(tile);
         const elevFeet = Number(tile.document?.elevation) || 0;
-        const gz = getGridZ(tgx, tgy);
-        const finalZ = (layer === 'foreground') ? computeFinalZForEntity(tgx, tgy, elevFeet) : gz;
-        plan.debugTiles.push({ gx: tgx, gy: tgy, px: tile.document.x, py: tile.document.y + tile.document.height, gz, finalZ, elev: elevFeet, layer });
-        const depth = tgx + tgy;
-        tileEntries.push({ tile, walls, gx: tgx, gy: tgy, depth, layer, elev: elevFeet, finalZ });
-        plan.tileDepths[tile.id] = depth;
+        const finalZ = computeFinalZForEntity(gx, gy, elevFeet);
+        const entry = { tile, walls, gx, gy, elev: elevFeet, finalZ };
+        foregroundEntries.push(entry);
+        plan.debugTiles.push({ gx, gy, px: tile.document.x, py: tile.document.y + tile.document.height, gz: getGridZ(gx, gy), finalZ, elev: elevFeet, layer: 'foreground' });
+    }
+    foregroundEntries.sort((a,b)=> (a.finalZ - b.finalZ) || String(a.tile.id).localeCompare(String(b.tile.id)));
+    for (const fe of foregroundEntries) {
+        const baseClone = cloneTileSprite(fe.tile, fe.walls, false);
+        if (baseClone) plan.tiles.push({ sprite: baseClone, z: fe.finalZ });
+        plan.tileDepths[fe.tile.id] = fe.finalZ; // reuse tileDepths to reflect final ordering
     }
 
-    // Gather visible tokens (controlled + others visible from it)
+    // Tokens (visibility). Use finalZ ordering always.
     const visibleTokens = [];
     if (controlledToken?.mesh) {
         visibleTokens.push(controlledToken);
-        const controlledSprite = cloneTokenSprite(controlledToken.mesh);
-        if (controlledSprite) {
+        const cs = cloneTokenSprite(controlledToken.mesh);
+        if (cs) {
             const { gx, gy } = getTokenGridXY(controlledToken);
-            const depth = gx + gy;
-            plan.tokens.push({ sprite: controlledSprite, z: depth });
-            if (controlledToken?.id) plan.tokenDepths[controlledToken.id] = depth;
-            plan.debugTokens.push({ gx, gy, px: controlledToken.center.x, py: controlledToken.center.y });
-            const gz = getGridZ(gx, gy); const elev = controlledToken.document?.elevation ?? 0; const finalZ = computeFinalZForEntity(gx, gy, elev);
-            const entry = plan.debugTokens[plan.debugTokens.length - 1];
-            entry.gz = gz; entry.finalZ = finalZ; entry.elev = elev;
+            const elev = controlledToken.document?.elevation ?? 0;
+            const finalZ = computeFinalZForEntity(gx, gy, elev);
+            plan.tokens.push({ sprite: cs, z: finalZ });
+            if (controlledToken?.id) plan.tokenDepths[controlledToken.id] = finalZ;
+            plan.debugTokens.push({ gx, gy, px: controlledToken.center.x, py: controlledToken.center.y, gz: getGridZ(gx, gy), finalZ, elev });
         }
     }
     for (const token of canvas.tokens.placeables) {
@@ -535,42 +536,36 @@ function computeVisibilityDrawPlan(controlledToken) {
         if (controlledToken && token.id === controlledToken.id) continue;
         if (!controlledToken || canTokenSeeToken(controlledToken, token)) {
             visibleTokens.push(token);
-            const tokenSprite = cloneTokenSprite(token.mesh);
-            if (!tokenSprite) continue;
+            const ts = cloneTokenSprite(token.mesh);
+            if (!ts) continue;
             const { gx, gy } = getTokenGridXY(token);
-            const depth = gx + gy;
-            plan.tokens.push({ sprite: tokenSprite, z: depth });
-            if (token.id) plan.tokenDepths[token.id] = depth;
-            plan.debugTokens.push({ gx, gy, px: token.center.x, py: token.center.y });
-            const gz = getGridZ(gx, gy); const elev = token.document?.elevation ?? 0; const finalZ = computeFinalZForEntity(gx, gy, elev);
-            const entry = plan.debugTokens[plan.debugTokens.length - 1];
-            entry.gz = gz; entry.finalZ = finalZ; entry.elev = elev;
+            const elev = token.document?.elevation ?? 0;
+            const finalZ = computeFinalZForEntity(gx, gy, elev);
+            plan.tokens.push({ sprite: ts, z: finalZ });
+            if (token.id) plan.tokenDepths[token.id] = finalZ;
+            plan.debugTokens.push({ gx, gy, px: token.center.x, py: token.center.y, gz: getGridZ(gx, gy), finalZ, elev });
         }
     }
 
-    // Always add a base clone for each occluding tile; we'll add per-token masked occluders later.
-    for (const te of tileEntries) {
-        const clonedSprite = cloneTileSprite(te.tile, te.walls, false);
-        if (clonedSprite) plan.tiles.push({ sprite: clonedSprite });
-    }
-
-    // Occluder clones on tokens layer (for proper stacking), only for tiles that actually occlude each token
-    const hideSet = new Set(plan.hideOriginalTileIds || []);
-    for (const tk of visibleTokens) {
-        const { gx, gy } = getTokenGridXY(tk);
-        const depth = gx + gy;
-        const occludingTiles = tileEntries.filter(te => gx >= te.gx && gy <= te.gy);
-        for (const te of occludingTiles) {
-            const masked = createMaskedOccluderForToken(te.tile, tk);
+    // Occlusion: tile covers tokens with lower finalZ & overlapping bounds (foreground only)
+    for (const fe of foregroundEntries) {
+        const tileBounds = safeGetBounds(fe.tile.mesh);
+        if (!tileBounds) continue;
+        for (const tk of visibleTokens) {
+            const { gx, gy } = getTokenGridXY(tk);
+            const elev = tk.document?.elevation ?? 0;
+            const tokenFinalZ = computeFinalZForEntity(gx, gy, elev);
+            if (tokenFinalZ >= fe.finalZ) continue;
+            const tokenBounds = safeGetBounds(tk.mesh);
+            if (!tokenBounds || tokenBounds.right <= tileBounds.x || tokenBounds.x >= tileBounds.right || tokenBounds.bottom <= tileBounds.y || tokenBounds.y >= tileBounds.bottom) continue;
+            const masked = createMaskedOccluderForToken(fe.tile, tk);
             if (!masked) continue;
-            // Add mask slightly below sprite so z-order consistent
-            plan.occluders.push({ sprite: masked.mask, z: depth + 0.24 });
-            plan.occluders.push({ sprite: masked.sprite, z: depth + 0.25 });
+            plan.occluders.push({ sprite: masked.mask, z: fe.finalZ + 0.001 });
+            plan.occluders.push({ sprite: masked.sprite, z: fe.finalZ + 0.002 });
         }
     }
 
-    // Reflect the final hide set into the plan
-    plan.hideOriginalTileIds = Array.from(hideSet);
+    plan.hideOriginalTileIds = Array.from(new Set(plan.hideOriginalTileIds));
     return plan;
 }
 
