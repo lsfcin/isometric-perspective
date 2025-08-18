@@ -59,8 +59,8 @@ export function extractTilePreset(tileDocument) {
   const flags = tileDocument.getFlag(MODULE_ID, '') || {}; // bulk fetch not supported; collect individually
   // Explicitly collect known flags we care about now (others can be added later)
   const wanted = [
-    'isoTileDisabled','scale','tokenFlipped','offsetX','offsetY',
-  'OccludingTile','OcclusionAlpha','linkedWallIds','linkedWallAnchors'
+  'isoTileDisabled','scale','tokenFlipped','offsetX','offsetY',
+  'layer','OcclusionAlpha','linkedWallIds','linkedWallAnchors'
   ];
   const collected = {};
   for (const k of wanted) {

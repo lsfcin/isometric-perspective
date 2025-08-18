@@ -54,6 +54,20 @@ function getGridZ(gx, gy) {
     return __gridZValues[gy][gx];
 }
 
+function getElevationOffsetBase() {
+    if (!__gridCols || !__gridRows) return 100; // fallback
+    const maxZ = (__gridCols * __gridRows) - 1;
+    const digits = String(Math.max(1, maxZ)).length; // e.g. 63 -> 2
+    return 10 ** digits; // next power of ten (63 -> 100)
+}
+
+function computeFinalZForEntity(gx, gy, elevationFeet) {
+    const base = getGridZ(gx, gy) ?? 0;
+    const offBase = getElevationOffsetBase();
+    const elev = Number(elevationFeet) || 0;
+    return base + (elev * offBase);
+}
+
 function clamp01(n) {
     const v = Number(n);
     if (!Number.isFinite(v)) return 1;
@@ -482,26 +496,22 @@ function computeVisibilityDrawPlan(controlledToken) {
         return ida.localeCompare(idb);
     });
 
-    // Prepare tiles and collect grid corners
+    // Prepare tiles and collect grid/elevation data
     const tileEntries = [];
     for (const tile of tilesSorted) {
         const walls = getLinkedWalls(tile);
-        // If any linked door is open, hide this tile entirely (original + clones)
         const anyDoorOpen = Array.isArray(walls) && walls.some(w => (w?.document?.door === 1 || w?.document?.door === 2) && w?.document?.ds === 1);
-        if (anyDoorOpen) {
-            plan.hideOriginalTileIds.push(tile.id);
-            // Do not add any clones; tile becomes fully invisible
-            continue;
-        }
-        // Hide the original occluding tile mesh; we will represent via clones
+        if (anyDoorOpen) { plan.hideOriginalTileIds.push(tile.id); continue; }
         plan.hideOriginalTileIds.push(tile.id);
         const { gx: tgx, gy: tgy } = getTileBottomCornerGridXY(tile);
-        // Collect debug info for tile bottom-corner grid coords
-        plan.debugTiles.push({ gx: tgx, gy: tgy, px: tile.document.x, py: tile.document.y + tile.document.height });
-    plan.debugTiles[plan.debugTiles.length - 1].gz = getGridZ(tgx, tgy);
-    const depth = tgx + tgy;
-    tileEntries.push({ tile, walls, gx: tgx, gy: tgy, depth });
-    plan.tileDepths[tile.id] = depth;
+        const layer = tile.document.getFlag(MODULE_ID, 'layer') || 'foreground';
+        const elevFeet = Number(tile.document?.elevation) || 0;
+        const gz = getGridZ(tgx, tgy);
+        const finalZ = (layer === 'foreground') ? computeFinalZForEntity(tgx, tgy, elevFeet) : gz;
+        plan.debugTiles.push({ gx: tgx, gy: tgy, px: tile.document.x, py: tile.document.y + tile.document.height, gz, finalZ, elev: elevFeet, layer });
+        const depth = tgx + tgy;
+        tileEntries.push({ tile, walls, gx: tgx, gy: tgy, depth, layer, elev: elevFeet, finalZ });
+        plan.tileDepths[tile.id] = depth;
     }
 
     // Gather visible tokens (controlled + others visible from it)
@@ -515,7 +525,9 @@ function computeVisibilityDrawPlan(controlledToken) {
             plan.tokens.push({ sprite: controlledSprite, z: depth });
             if (controlledToken?.id) plan.tokenDepths[controlledToken.id] = depth;
             plan.debugTokens.push({ gx, gy, px: controlledToken.center.x, py: controlledToken.center.y });
-            plan.debugTokens[plan.debugTokens.length - 1].gz = getGridZ(gx, gy);
+            const gz = getGridZ(gx, gy); const elev = controlledToken.document?.elevation ?? 0; const finalZ = computeFinalZForEntity(gx, gy, elev);
+            const entry = plan.debugTokens[plan.debugTokens.length - 1];
+            entry.gz = gz; entry.finalZ = finalZ; entry.elev = elev;
         }
     }
     for (const token of canvas.tokens.placeables) {
@@ -530,7 +542,9 @@ function computeVisibilityDrawPlan(controlledToken) {
             plan.tokens.push({ sprite: tokenSprite, z: depth });
             if (token.id) plan.tokenDepths[token.id] = depth;
             plan.debugTokens.push({ gx, gy, px: token.center.x, py: token.center.y });
-            plan.debugTokens[plan.debugTokens.length - 1].gz = getGridZ(gx, gy);
+            const gz = getGridZ(gx, gy); const elev = token.document?.elevation ?? 0; const finalZ = computeFinalZForEntity(gx, gy, elev);
+            const entry = plan.debugTokens[plan.debugTokens.length - 1];
+            entry.gz = gz; entry.finalZ = finalZ; entry.elev = elev;
         }
     }
 
@@ -612,7 +626,8 @@ function addDebugOverlays(plan) {
         const tokenStyle = new PIXI.TextStyle({ fontSize: 12, fill: '#ffff00', stroke: '#000000', strokeThickness: 3 });
 
             for (const t of plan.debugTiles || []) {
-                const label = typeof t.gz === 'number' ? `T(${t.gx},${t.gy}) z:${t.gz}` : `T(${t.gx},${t.gy})`;
+                let zVal = (t.finalZ !== undefined) ? t.finalZ : (t.gz !== undefined ? t.gz : undefined);
+                const label = (zVal !== undefined) ? `T(${t.gx},${t.gy}) z:${zVal}` : `T(${t.gx},${t.gy})`;
                 const txt = new PIXI.Text(label, tileStyle);
                 txt.anchor.set(0.5, 1);
                 txt.position.set(t.px, t.py - 4);
@@ -622,7 +637,8 @@ function addDebugOverlays(plan) {
             }
 
         for (const k of plan.debugTokens || []) {
-            const label = typeof k.gz === 'number' ? `K(${k.gx},${k.gy}) z:${k.gz}` : `K(${k.gx},${k.gy})`;
+            let zVal = (k.finalZ !== undefined) ? k.finalZ : (k.gz !== undefined ? k.gz : undefined);
+            const label = (zVal !== undefined) ? `K(${k.gx},${k.gy}) z:${zVal}` : `K(${k.gx},${k.gy})`;
             const txt = new PIXI.Text(label, tokenStyle);
             txt.anchor.set(0.5, 1);
             txt.position.set(k.px, k.py - 16);

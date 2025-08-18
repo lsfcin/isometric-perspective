@@ -40,15 +40,23 @@ async function handleRenderTileConfig(app, html, data) {
   const wallIdsString = Array.isArray(linkedWallIds) ? linkedWallIds.join(', ') : linkedWallIds;
 
   // Carrega o template HTML para a nova aba
+  const existingLayer = app.object.getFlag(MODULE_ID, 'layer');
+  let layerValue = existingLayer;
+  if (!layerValue) {
+    // Migration heuristic: OccludingTile true -> foreground; else background by default, unless neither -> foreground default per spec (interleaving behavior typical)
+    const legacyOccluding = app.object.getFlag(MODULE_ID, 'OccludingTile');
+    layerValue = legacyOccluding ? 'foreground' : 'background';
+  }
   const tabHtml = await renderTemplate("modules/isometric-perspective/templates/tile-config.html", {
   // Default should be unchecked/false so opening the config doesn't disable isometric tiles
   isoDisabled: app.object.getFlag(MODULE_ID, 'isoTileDisabled') ?? 0,
     scale: app.object.getFlag(MODULE_ID, 'scale') ?? 1,
-    isFlipped: app.object.getFlag(MODULE_ID, 'tokenFlipped') ?? false,
+  isFlipped: app.object.getFlag(MODULE_ID, 'tokenFlipped') ?? false,
     offsetX: app.object.getFlag(MODULE_ID, 'offsetX') ?? 0,
     offsetY: app.object.getFlag(MODULE_ID, 'offsetY') ?? 0,
     linkedWallIds: wallIdsString,
-  isOccluding: app.object.getFlag(MODULE_ID, 'OccludingTile') ?? false,
+  isBackground: layerValue === 'background',
+  isForeground: layerValue === 'foreground' || !layerValue,
   // Fallback 0.8 opacity when not yet defined
   occlusionAlpha: app.object.getFlag(MODULE_ID, 'OcclusionAlpha') ?? 0.8,
   useImagePreset: app.object.getFlag(MODULE_ID, 'useImagePreset') ?? true
@@ -69,7 +77,7 @@ async function handleRenderTileConfig(app, html, data) {
   const isoTileCheckbox = html.find('input[name="flags.isometric-perspective.isoTileDisabled"]');
   const flipCheckbox = html.find('input[name="flags.isometric-perspective.tokenFlipped"]');
   const linkedWallInput = html.find('input[name="flags.isometric-perspective.linkedWallIds"]');
-  const occludingCheckbox = html.find('input[name="flags.isometric-perspective.OccludingTile"]');
+  const layerSelect = html.find('select[name="flags.isometric-perspective.layer"]');
   const occAlphaSlider = html.find('input[name="flags.isometric-perspective.OcclusionAlpha"]');
   const occAlphaGroup = html.find('.occlusion-alpha-group');
   // Preset checkbox (declare early so we can set default before later code references)
@@ -87,7 +95,7 @@ async function handleRenderTileConfig(app, html, data) {
   const alphaDefault = (existingAlpha === undefined || existingAlpha === 1) ? 0.8 : existingAlpha;
   const usePresetDefault = existingUsePreset === undefined ? true : existingUsePreset;
 
-  occludingCheckbox.prop("checked", occludingDefault);
+  layerSelect.val(layerValue);
   occAlphaSlider.val(alphaDefault);
   // Update displayed numeric label beside slider
   const occAlphaValueSpan = occAlphaSlider.closest('.form-fields').find('.range-value');
@@ -154,13 +162,11 @@ async function handleRenderTileConfig(app, html, data) {
   });
   // Show/hide occlusion alpha group based on occluding checkbox (respect default)
   const syncOccGroup = () => {
-    const checked = occludingCheckbox.prop('checked');
-    occAlphaGroup.css('display', checked ? 'flex' : 'none');
+    const layerVal = layerSelect.val();
+    occAlphaGroup.css('display', layerVal === 'foreground' ? 'flex' : 'none');
   };
   syncOccGroup();
-  occludingCheckbox.on('change', () => {
-    syncOccGroup();
-  });
+  layerSelect.on('change', () => { syncOccGroup(); });
 
   // Set initial state for simplified preset checkbox (already defaulted above)
   if (usePresetCheckbox && usePresetCheckbox.length && usePresetCheckbox.prop('checked') === false && usePresetDefault) {
@@ -188,11 +194,11 @@ async function handleRenderTileConfig(app, html, data) {
       await app.object.unsetFlag(MODULE_ID, "tokenFlipped");
     }
 
-    if (html.find('input[name="flags.isometric-perspective.OccludingTile"]').prop("checked")) {
-      await app.object.setFlag(MODULE_ID, "OccludingTile", true);
-    } else {
-      await app.object.unsetFlag(MODULE_ID, "OccludingTile");
-    }
+  // Persist new layer flag
+  const layerChoice = layerSelect.val();
+  await app.object.setFlag(MODULE_ID, 'layer', layerChoice);
+  // Legacy flag cleanup (optional – retain if presets still rely)
+  try { await app.object.unsetFlag(MODULE_ID, 'OccludingTile'); } catch {}
 
     // Persist occlusion alpha
     if (occAlphaSlider.length) {
