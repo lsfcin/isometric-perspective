@@ -243,6 +243,8 @@ function cloneTokenSprite(token) {
         sprite.opacityGroup = 'tokens';
         sprite.eventMode = 'passive';
         sprite.originalToken = token;
+    // Mirror Foundry visibility (covers hidden, vision-based, permission-based). If token.visible is false, hide clone.
+    try { sprite.visible = !!token.visible; } catch { sprite.visible = true; }
         try { token.mesh.alpha = 0; } catch {}
         return sprite;
     } catch (e) {
@@ -325,6 +327,8 @@ function updateAlwaysVisibleElements() {
     const tokenDepthMap = new Map();
     for (const token of canvas.tokens.placeables) {
         if (!token) continue;
+        // Skip entirely if not visible (still compute depth? Only needed for relative ordering among visible ones).
+        const tokenIsVisible = !!token.visible;
         const tx = token.document.x; // token top-left
         const ty = token.document.y;
         let minOccludingDepth = Infinity;
@@ -349,9 +353,12 @@ function updateAlwaysVisibleElements() {
             depth = minOccludingDepth - 1;
         }
         // Attempt clone but don't skip debug if it fails
-    const clone = cloneTokenSprite(token);
-    if (clone) tokenEntries.push({ depth, sprite: clone, token });
-    tokenDepthMap.set(token.id, depth);
+        const clone = cloneTokenSprite(token);
+        if (clone) {
+            if (!tokenIsVisible) clone.visible = false;
+            tokenEntries.push({ depth, sprite: clone, token, visible: tokenIsVisible });
+        }
+        if (tokenIsVisible) tokenDepthMap.set(token.id, depth);
     }
 
     const combined = [...foregroundTileEntries, ...tokenEntries];
@@ -383,7 +390,7 @@ function updateAlwaysVisibleElements() {
             }
             // Tokens: iterate all placeables so we still show debug even if clone failed
             for (const token of canvas.tokens.placeables) {
-                if (!token) continue;
+                if (!token || !token.visible) continue; // only label visible tokens
                 const { gx, gy } = getTokenGridXY(token);
                 const doc = token.document;
                 const w = (Number(doc.width) || 1) * (canvas.grid?.size || 1);
