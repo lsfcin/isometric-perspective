@@ -10,6 +10,25 @@ export function registerTileConfig() {
   Hooks.on("refreshTile", handleRefreshTile);
   Hooks.on("updateWall", handleUpdateWall);
   Hooks.on('getSceneControlButtons', injectTileLayerButtons);
+  // Rebuild controls when a tile becomes selected OR when all tiles become deselected.
+  // This keeps custom buttons visible only while at least one tile is selected, while avoiding
+  // flicker during rapid selection switches (deselect old -> select new in same frame).
+  Hooks.on('controlTile', (tile, controlled) => {
+    try {
+      if (controlled) {
+        // Immediate refresh when a tile is selected so buttons appear.
+        ui.controls.initialize();
+      } else {
+        // Defer: if after a short delay no tiles remain controlled, remove buttons.
+        setTimeout(() => {
+          try {
+            const any = Array.from(canvas.tiles?.controlled || []).length > 0;
+            if (!any) ui.controls.initialize();
+          } catch {}
+        }, 40);
+      }
+    } catch {}
+  });
 
   // Track the raw drop point for tile creation so we can correct placement
   Hooks.on('dropCanvasData', (_canvas, data) => {
@@ -40,26 +59,34 @@ let lastTileDesiredBottomLeft = null;
 function injectTileLayerButtons(controls) {
   const tilesCtl = controls.find(b => b.name === 'tiles');
   if (!tilesCtl) return;
-  // Deduplicate: if we've already added our buttons (check by name), skip
-  if (tilesCtl.tools.some(t => t?.name === 'iso-layer-background')) return;
+  // Determine isometric scene state
+  let isIsoScene = false;
+  try { isIsoScene = !!(canvas?.scene?.getFlag(MODULE_ID, 'isometricEnabled') || game.settings.get(MODULE_ID, 'worldIsometricFlag')); } catch {}
 
-  // Remove stale legacy house icon button
-  try {
-    tilesCtl.tools = tilesCtl.tools.filter(t => {
-      if (!t) return false;
-      const icon = String(t.icon || '');
-      if (/fa-house|fa-home/i.test(icon)) return false;
-      return true;
-    });
-  } catch {}
+  // Always remove deprecated house/home icon if isometric scene
+  if (isIsoScene) {
+    try {
+      tilesCtl.tools = tilesCtl.tools.filter(t => {
+        if (!t) return false;
+        const icon = String(t.icon || '');
+        if (/fa-house|fa-home/i.test(icon)) return false;
+        return true;
+      });
+    } catch {}
+  }
+
+  const selTiles = Array.from(canvas.tiles?.controlled || []);
+  if (!selTiles.length) return; // don't add our custom buttons unless selection
+
+  // Deduplicate after potential removal
+  if (tilesCtl.tools.some(t => t?.name === 'iso-layer-background')) return;
 
   // Determine common layer among selection
   let selectedLayer = null;
   try {
-    const sel = Array.from(canvas.tiles?.controlled || []);
-    if (sel.length) {
-      const first = sel[0].document.getFlag(MODULE_ID, 'isoLayer') || 'foreground';
-      if (sel.every(t => (t.document.getFlag(MODULE_ID, 'isoLayer') || 'foreground') === first)) selectedLayer = first;
+    if (selTiles.length) {
+      const first = selTiles[0].document.getFlag(MODULE_ID, 'isoLayer') || 'foreground';
+      if (selTiles.every(t => (t.document.getFlag(MODULE_ID, 'isoLayer') || 'foreground') === first)) selectedLayer = first;
     }
   } catch {}
 
