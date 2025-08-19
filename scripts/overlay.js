@@ -387,11 +387,11 @@ export function addDebugOverlays(plan) {
     debugLayer.removeChildren();
     const tileStyle = new PIXI.TextStyle({ fontSize: 12, fill: '#00ffff', stroke: '#000000', strokeThickness: 3 });
     const tokenStyle = new PIXI.TextStyle({ fontSize: 12, fill: '#ffff00', stroke: '#000000', strokeThickness: 3 });
-    for (const t of (plan?.debugTiles || [])) {
-      const txt = new PIXI.Text(`(${t.gx},${t.gy}) z:${t.sort}`, tileStyle);
+    for (const tile of (plan?.debugTiles || [])) {
+      const txt = new PIXI.Text(`(${tile.gx},${tile.gy}) z:${tile.sort}`, tileStyle);
       txt.anchor.set(0.5, 1);
-      txt.position.set(t.px, t.py - 4);
-      txt.zIndex = (t.gx ?? 0) + (t.gy ?? 0);
+      txt.position.set(tile.px, tile.py - 4);
+      txt.zIndex = (tile.gx ?? 0) + (tile.gy ?? 0);
       txt.eventMode = 'passive';
       debugLayer.addChild(txt);
     }

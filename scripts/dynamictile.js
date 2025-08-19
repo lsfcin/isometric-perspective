@@ -163,6 +163,7 @@ export function updateTilesOpacity(value) {
     // Only affects cloned foreground tiles; native background tiles keep their document alpha
     updateLayerOpacity(foregroundContainer);
 }
+
 // Instead of adjusting a global tiles opacity, adjust the OcclusionAlpha per selected tile
 async function adjustSelectedTilesOcclusionAlpha(delta = 0.1) {
     try {
@@ -285,9 +286,9 @@ function updateAlwaysVisibleElements() {
     // Map tile entries to unique depths inside each sort band so tiles of same sort don't share depth
     // Group by sort value first
     const bySort = new Map();
-    for (const e of foregroundTileEntries) {
-        if (!bySort.has(e.sort)) bySort.set(e.sort, []);
-        bySort.get(e.sort).push(e);
+    for (const tile of foregroundTileEntries) {
+        if (!bySort.has(tile.sort)) bySort.set(tile.sort, []);
+        bySort.get(tile.sort).push(tile);
     }
     for (const [sortValue, arr] of bySort.entries()) {
         // Order tiles in this sort band by their bottom Y (then X) so natural vertical stacking is preserved
@@ -321,19 +322,19 @@ function updateAlwaysVisibleElements() {
         if (!token) continue;
         // Skip entirely if not visible (still compute depth? Only needed for relative ordering among visible ones).
         const tokenIsVisible = !!token.visible;
-        const tx = token.document.x; // token top-left
-        const ty = token.document.y;
+        const tokenX = token.document.x; // token top-left
+        const tokenY = token.document.y;
         let minOccludingDepth = Infinity;
         let maxNonOccludingDepth = -Infinity;
-        for (const te of foregroundTileEntries) {
-            const tileDoc = te.tile.document;
+        for (const tile of foregroundTileEntries) {            
+            const tileDoc = tile.tile.document;
             const tileX = tileDoc.x;
-            const tileY = tileDoc.y;
-            const occludes = (tileX <= tx) && (tileY >= ty);
+            const tileY = tileDoc.y + tileDoc.height - 0.0001; // bottom edge
+            const occludes = (tileX <= tokenX) && (tileY >= tokenY);
             if (occludes) {
-                if (te.depth < minOccludingDepth) minOccludingDepth = te.depth;
+                if (tile.depth < minOccludingDepth) minOccludingDepth = tile.depth;
             } else {
-                if (te.depth > maxNonOccludingDepth) maxNonOccludingDepth = te.depth;
+                if (tile.depth > maxNonOccludingDepth) maxNonOccludingDepth = tile.depth;
             }
         }
         let depth;
@@ -353,11 +354,11 @@ function updateAlwaysVisibleElements() {
         if (tokenIsVisible) tokenDepthMap.set(token.id, depth);
     }
 
-    const combined = [...foregroundTileEntries, ...tokenEntries];
-    combined.sort((a,b)=> a.depth - b.depth);
-    for (const e of combined) {
-        e.sprite.zIndex = e.depth;
-        foregroundContainer.addChild(e.sprite);
+    const foregroundElements = [...foregroundTileEntries, ...tokenEntries];
+    foregroundElements.sort((a,b)=> a.depth - b.depth);
+    for (const element of foregroundElements) {
+        element.sprite.zIndex = element.depth;
+        foregroundContainer.addChild(element.sprite);
     }
 
     updateLayerOpacity(foregroundContainer);
@@ -366,10 +367,10 @@ function updateAlwaysVisibleElements() {
         try {
             const plan = { debugTiles: [], debugTokens: [] };
             // Foreground tiles: use computed depth actually applied to zIndex, not raw document.sort
-            for (const fe of foregroundTileEntries) {
-                const tile = fe.tile; if (!tile?.mesh) continue;
+            for (const tileEntry of foregroundTileEntries) {
+                const tile = tileEntry.tile; if (!tile?.mesh) continue;
                 const { gx, gy } = getTileBottomCornerGridXY(tile);
-                const applied = Math.round(fe.depth); // final zIndex used
+                const applied = Math.round(tileEntry.depth); // final zIndex used
                 plan.debugTiles.push({ gx, gy, sort: applied, px: tile.document.x, py: tile.document.y + tile.document.height });
             }
             // Background tiles: use their document.sort directly
