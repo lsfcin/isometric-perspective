@@ -3,6 +3,46 @@ const MODULE_ID = 'isometric-perspective';
 let hoverLayer = null;
 let debugLayer = null; // separate layer for debug coordinate text
 let _escKeyHandler = null;
+let _altKeyDownHandler = null;
+let _altKeyUpHandler = null;
+let _altHighlightActive = false;
+
+function drawAltTokenHighlights() {
+  if (!hoverLayer) return;
+  try {
+    for (const token of (canvas.tokens?.placeables || [])) {
+      if (!token?.visible) continue;
+      const name = `TokenAltHighlight-${token.id}`;
+      // Avoid recreating every time
+      if (hoverLayer.getChildByName(name)) continue;
+      const g = new PIXI.Graphics();
+      g.name = name;
+      g.eventMode = 'passive';
+      g.zIndex = 9_999_996; // just below hover single-token highlight (9_999_997) but above everything else
+      const grid = canvas.grid?.size || canvas.dimensions?.size || 100;
+      const wUnits = Math.max(1, Number(token.document?.width) || 1);
+      const hUnits = Math.max(1, Number(token.document?.height) || 1);
+      const pxW = wUnits * grid;
+      const pxH = hUnits * grid;
+      const x = Number(token.document?.x ?? token.x ?? token.position?.x) || 0;
+      const y = Number(token.document?.y ?? token.y ?? token.position?.y) || 0;
+      const stroke = 0x33bbff; // blue-ish
+      // outer dark for contrast
+      g.lineStyle(4, 0x000000, 0.30); g.drawRect(x, y, pxW, pxH);
+      g.lineStyle(2, stroke, 0.90); g.drawRect(x, y, pxW, pxH);
+      hoverLayer.addChild(g);
+    }
+    bringOverlayToTop();
+  } catch {}
+}
+
+function clearAltTokenHighlights() {
+  if (!hoverLayer) return;
+  try {
+    const toRemove = hoverLayer.children.filter(c => typeof c?.name === 'string' && c.name.startsWith('TokenAltHighlight-'));
+    for (const c of toRemove) hoverLayer.removeChild(c);
+  } catch {}
+}
 
 function bringOverlayToTop() {
   try {
@@ -53,6 +93,10 @@ export function registerOverlayHooks() {
         debugLayer = null;
       }
   if (_escKeyHandler) { try { window.removeEventListener('keydown', _escKeyHandler, true); } catch {} _escKeyHandler = null; }
+  if (_altKeyDownHandler) { try { window.removeEventListener('keydown', _altKeyDownHandler, true); } catch {} _altKeyDownHandler = null; }
+  if (_altKeyUpHandler) { try { window.removeEventListener('keyup', _altKeyUpHandler, true); } catch {} _altKeyUpHandler = null; }
+  _altHighlightActive = false;
+  clearAltTokenHighlights();
     } catch {}
   });
 
@@ -87,6 +131,34 @@ export function registerOverlayHooks() {
       }
     };
     try { window.addEventListener('keydown', _escKeyHandler, true); } catch {}
+  }
+
+  // ALT key global highlights
+  if (!_altKeyDownHandler) {
+    _altKeyDownHandler = (ev) => {
+      try {
+        if (ev.key === 'Alt' || ev.altKey) {
+          if (!_altHighlightActive) {
+            _altHighlightActive = true;
+            drawAltTokenHighlights();
+          }
+        }
+      } catch {}
+    };
+    try { window.addEventListener('keydown', _altKeyDownHandler, true); } catch {}
+  }
+  if (!_altKeyUpHandler) {
+    _altKeyUpHandler = (ev) => {
+      try {
+        if (ev.key === 'Alt' || !ev.altKey) {
+          if (_altHighlightActive) {
+            _altHighlightActive = false;
+            clearAltTokenHighlights();
+          }
+        }
+      } catch {}
+    };
+    try { window.addEventListener('keyup', _altKeyUpHandler, true); } catch {}
   }
   Hooks.on('refreshToken', (token) => { try { if (token?.hover) updateTokenGridHighlight(token); } catch {} bringOverlayToTop(); });
   Hooks.on('updateToken', (tokenDocument) => {
