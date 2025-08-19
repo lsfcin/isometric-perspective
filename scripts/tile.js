@@ -342,6 +342,9 @@ async function handleRenderTileConfig(app, html, data) {
     } else {
       await app.object.setFlag(MODULE_ID, 'linkedWallIds', []);
     }
+
+  // After all persistence, refresh controls so layer button highlight reflects any layer change.
+  try { if (canvas?.tiles?.controlled?.length) ui.controls.initialize(); } catch {}
   });
 
   // dynamictile.js event listeners for the buttons
@@ -470,6 +473,10 @@ function handleUpdateTile(tileDocument, updateData, options, userId) {
         await updateLinkedWallsPositions(tileDocument);
       } else {
         updateLinkedWallsPositions(tileDocument);
+      }
+      // If layer changed, refresh controls so highlight updates even without reselecting
+      if (updateData?.flags && updateData.flags[MODULE_ID] && ("isoLayer" in updateData.flags[MODULE_ID])) {
+        try { if (canvas?.tiles?.controlled?.length) ui.controls.initialize(); } catch {}
       }
     } catch (e) { if (DEBUG_PRINT) console.warn('updateLinkedWallsPositions error', e); }
   })();
