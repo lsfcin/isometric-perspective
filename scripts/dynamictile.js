@@ -272,23 +272,28 @@ function updateAlwaysVisibleElements() {
     backgroundContainer.removeChildren();
     foregroundContainer.removeChildren();
 
-    // Collect tile clones
-    const backgroundEntries = [];
+    // Collect foreground tile clones (background tiles left as native Foundry tiles, not cloned)
+    const backgroundTileDocs = [];
     const foregroundTileEntries = [];
     const TILE_STRIDE = 10000; // large spacing between tile depth bands
     for (const tile of canvas.tiles.placeables) {
         if (!tile?.mesh) continue;
         let layer = tile.document.getFlag(MODULE_ID, 'isoLayer');
         if (layer !== 'background' && layer !== 'foreground') layer = 'foreground';
-        const clone = cloneTileSprite(tile);
-        if (!clone) continue;
-        try { tile.mesh.alpha = 0; } catch {}
         const sort = Number(tile.document.sort) || 0;
-        if (layer === 'background') backgroundEntries.push({ sort, sprite: clone });
-        else foregroundTileEntries.push({ sort, sprite: clone, tile });
+        if (layer === 'background') {
+            // Ensure original tile mesh is visible with its document alpha
+            try { tile.mesh.alpha = (typeof tile.document.alpha === 'number') ? tile.document.alpha : 1; } catch {}
+            backgroundTileDocs.push(tile);
+        } else {
+            const clone = cloneTileSprite(tile);
+            if (!clone) continue;
+            try { tile.mesh.alpha = 0; } catch {}
+            foregroundTileEntries.push({ sort, sprite: clone, tile });
+        }
     }
-    backgroundEntries.sort((a,b)=> a.sort - b.sort);
-    for (const e of backgroundEntries) backgroundContainer.addChild(e.sprite);
+    // Background container no longer used for tile clones; ensure it's empty
+    backgroundContainer.removeChildren();
 
     // Map tile entries to unique depths inside each sort band so tiles of same sort don't share depth
     // Group by sort value first
@@ -381,9 +386,9 @@ function updateAlwaysVisibleElements() {
                 const applied = Math.round(fe.depth); // final zIndex used
                 plan.debugTiles.push({ gx, gy, sort: applied, px: tile.document.x, py: tile.document.y + tile.document.height });
             }
-            // Background tiles: they don't get a depth; use their document.sort (their relative ordering inside background container)
-            for (const be of backgroundEntries) {
-                const tile = be.sprite?.originalTile; if (!tile?.mesh) continue;
+            // Background tiles: use their document.sort directly
+            for (const tile of backgroundTileDocs) {
+                if (!tile?.mesh) continue;
                 const { gx, gy } = getTileBottomCornerGridXY(tile);
                 const applied = Number(tile.document.sort) || 0;
                 plan.debugTiles.push({ gx, gy, sort: applied, px: tile.document.x, py: tile.document.y + tile.document.height });
