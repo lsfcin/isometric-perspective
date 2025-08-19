@@ -349,9 +349,38 @@ function updateAlwaysVisibleElements() {
         const clone = cloneTokenSprite(token);
         if (clone) {
             if (!tokenIsVisible) clone.visible = false;
-            tokenEntries.push({ depth, sprite: clone, token, visible: tokenIsVisible });
+            tokenEntries.push({ depth, sprite: clone, token, visible: tokenIsVisible, baseDepth: depth });
         }
         if (tokenIsVisible) tokenDepthMap.set(token.id, depth);
+    }
+
+    // --- Token-to-token relative ordering refinement ---
+    // After establishing each token's base depth relative to tiles, refine their ordering among themselves
+    // using the same occlusion rule applied pairwise. We only add a tiny epsilon so we never cross tile bands.
+    if (tokenEntries.length > 1) {
+        // Sort tokens so that occluding tokens come later (higher depth) without violating existing large depth gaps.
+        tokenEntries.sort((a, b) => {
+            if (a === b) return 0;
+            const ax = a.token.document.x; const ay = a.token.document.y;
+            const bx = b.token.document.x; const by = b.token.document.y;
+            const aOccludesB = (ax <= bx) && (ay >= by);
+            const bOccludesA = (bx <= ax) && (by >= ay);
+            if (aOccludesB && !bOccludesA) return 1;  // a should be in front -> higher depth
+            if (bOccludesA && !aOccludesB) return -1; // b should be in front
+            // Fallback: keep original relative base depth ordering first
+            if (a.baseDepth !== b.baseDepth) return a.baseDepth - b.baseDepth;
+            // Then by y then x to stabilize
+            if (ay !== by) return ay - by; // smaller y (higher on screen) behind
+            return ax - bx; // smaller x behind
+        });
+        // Apply epsilon increments inside each token's depth without exceeding next tile boundary.
+        const EPS = 0.0001;
+        for (let i = 0; i < tokenEntries.length; i++) {
+            tokenEntries[i].depth = tokenEntries[i].baseDepth + (i * EPS);
+            // Update debug map value with refined depth
+            const id = tokenEntries[i].token.id;
+            if (tokenDepthMap.has(id)) tokenDepthMap.set(id, tokenEntries[i].depth);
+        }
     }
 
     const foregroundElements = [...foregroundTileEntries, ...tokenEntries];
