@@ -76,17 +76,16 @@ function injectTileLayerButtons(controls) {
   }
 
   const selTiles = Array.from(canvas.tiles?.controlled || []);
-  if (!selTiles.length) return; // don't add our custom buttons unless selection
+  if (!selTiles.length) return; // no selection => no custom buttons
 
-  // Deduplicate after potential removal
-  if (tilesCtl.tools.some(t => t?.name === 'iso-layer-background')) return;
-
-  // Determine common layer among selection
-  let selectedLayer = null;
+  // Determine which layers are represented in the current selection
+  let hasForeground = false;
+  let hasBackground = false;
   try {
-    if (selTiles.length) {
-      const first = selTiles[0].document.getFlag(MODULE_ID, 'isoLayer') || 'foreground';
-      if (selTiles.every(t => (t.document.getFlag(MODULE_ID, 'isoLayer') || 'foreground') === first)) selectedLayer = first;
+    for (const t of selTiles) {
+      const layer = (t.document.getFlag(MODULE_ID, 'isoLayer') === 'background') ? 'background' : 'foreground';
+      if (layer === 'background') hasBackground = true; else hasForeground = true;
+      if (hasForeground && hasBackground) break;
     }
   } catch {}
 
@@ -98,45 +97,67 @@ function injectTileLayerButtons(controls) {
     ui.controls.initialize();
   };
 
-  tilesCtl.tools.push(
-    {
-      name: 'iso-layer-background',
-      title: 'Background Layer',
-      icon: 'fa-regular fa-square',
-      active: selectedLayer === 'background',
-      onClick: () => applyLayer('background'),
-      button: true
-    },
-    {
-      name: 'iso-layer-foreground',
-      title: 'Foreground Layer',
-      icon: 'fa-solid fa-square',
-      active: selectedLayer !== 'background',
-      onClick: () => applyLayer('foreground'),
-      button: true
-    },
-    {
-      name: 'tile-bring-front',
-      title: 'Bring Selected Tiles to Front (Sort)',
-      icon: 'fa-solid fa-arrow-up-wide-short',
-      onClick: () => bringSelectedTilesToFront(),
-      button: true
-    },
-    {
-      name: 'tile-send-back',
-      title: 'Send Selected Tiles to Back (Sort)',
-      icon: 'fa-solid fa-arrow-down-short-wide',
-      onClick: () => sendSelectedTilesToBack(),
-      button: true
-    },
-    {
-      name: 'dynamic-tile-flip',
-      title: 'Flip Selected Tiles',
-      icon: 'fa-solid fa-arrows-left-right',
-      onClick: () => flipSelectedTiles(),
-      button: true
+  // Ensure (create or update) layer toggle tools
+  const ensureOrUpdate = (name, defFactory, activeState) => {
+    let tool = tilesCtl.tools.find(t => t?.name === name);
+    if (!tool) {
+      tool = defFactory();
+      tilesCtl.tools.push(tool);
     }
-  );
+    tool.active = activeState; // update active each build
+  };
+  ensureOrUpdate('iso-layer-background', () => ({
+    name: 'iso-layer-background',
+    title: 'Background Layer',
+    icon: 'fa-regular fa-square',
+    toggle: true,
+    active: hasBackground,
+    onClick: () => applyLayer('background'),
+    button: true
+  }), hasBackground);
+  ensureOrUpdate('iso-layer-foreground', () => ({
+    name: 'iso-layer-foreground',
+    title: 'Foreground Layer',
+    icon: 'fa-solid fa-square',
+    toggle: true,
+    active: hasForeground,
+    onClick: () => applyLayer('foreground'),
+    button: true
+  }), hasForeground);
+
+  // Utility buttons: add once
+  if (!tilesCtl.tools.some(t => t?.name === 'tile-bring-front')) tilesCtl.tools.push({
+    name: 'tile-bring-front',
+    title: 'Bring Selected Tiles to Front (Sort)',
+    icon: 'fa-solid fa-arrow-up-wide-short',
+    onClick: () => bringSelectedTilesToFront(),
+    button: true
+  });
+  if (!tilesCtl.tools.some(t => t?.name === 'tile-send-back')) tilesCtl.tools.push({
+    name: 'tile-send-back',
+    title: 'Send Selected Tiles to Back (Sort)',
+    icon: 'fa-solid fa-arrow-down-short-wide',
+    onClick: () => sendSelectedTilesToBack(),
+    button: true
+  });
+  if (!tilesCtl.tools.some(t => t?.name === 'dynamic-tile-flip')) tilesCtl.tools.push({
+    name: 'dynamic-tile-flip',
+    title: 'Flip Selected Tiles',
+    icon: 'fa-solid fa-arrows-left-right',
+    onClick: () => flipSelectedTiles(),
+    button: true
+  });
+
+  // Inject CSS once to make "active" state for our layer buttons look like a mild brightness boost
+  // without the default pressed/contour styling.
+  try {
+    if (!document.getElementById('iso-layer-highlight-style')) {
+      const style = document.createElement('style');
+      style.id = 'iso-layer-highlight-style';
+      style.textContent = `#controls .control-tool[data-tool="iso-layer-background"].active,\n#controls .control-tool[data-tool="iso-layer-foreground"].active {\n  box-shadow: none !important;\n  border: none !important;\n  filter: brightness(1.35);\n}\n#controls .control-tool[data-tool="iso-layer-background"].active i,\n#controls .control-tool[data-tool="iso-layer-foreground"].active i {\n  text-shadow: 0 0 4px rgba(255,255,255,0.4);\n}`;
+      document.head.appendChild(style);
+    }
+  } catch {}
 }
 
 async function handleRenderTileConfig(app, html, data) {
