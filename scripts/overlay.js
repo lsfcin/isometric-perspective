@@ -3,9 +3,6 @@ const MODULE_ID = 'isometric-perspective';
 let hoverLayer = null;
 let debugLayer = null; // separate layer for debug coordinate text
 let _escKeyHandler = null;
-// Alt-key global highlights removed
-
-// (Alt-key global token highlight feature removed)
 
 function bringOverlayToTop() {
   try {

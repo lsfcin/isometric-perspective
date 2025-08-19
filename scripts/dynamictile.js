@@ -3,7 +3,7 @@ import { ensureWallIdsArray } from './tile.js';
 import { addDebugOverlays } from './overlay.js';
 
 // Module state (refactored two-layer system)
-let backgroundContainer;   // cloned background tiles (rendered below foreground container)
+// Background tiles now use their native Foundry rendering (no cloning / no custom container)
 let foregroundContainer;   // combined foreground tiles + token clones (interwoven ordering)
 let tilesOpacity = 1.0;   // applies to tile sprites (group === 'tiles')
 let tokensOpacity = 1.0;  // applies to token sprites (group === 'tokens')
@@ -62,31 +62,22 @@ function registerMiscHooks() {
 
 // ---- Hook handlers ----
 function setupContainers() {
-    for (const c of [backgroundContainer, foregroundContainer]) {
-        try { if (c?.parent) c.parent.removeChild(c); c?.destroy({ children: true }); } catch {}
+    if (foregroundContainer) {
+        try { if (foregroundContainer.parent) foregroundContainer.parent.removeChild(foregroundContainer); foregroundContainer.destroy({ children: true }); } catch {}
     }
-    backgroundContainer = new PIXI.Container();
-    backgroundContainer.name = 'IsoBackgroundTiles';
-    backgroundContainer.sortableChildren = true;
-    backgroundContainer.eventMode = 'passive';
-
     foregroundContainer = new PIXI.Container();
     foregroundContainer.name = 'IsoForeground';
-    foregroundContainer.sortableChildren = true; // we will assign zIndex
+    foregroundContainer.sortableChildren = true;
     foregroundContainer.eventMode = 'passive';
-
-    try {
-        const idx = canvas.stage.getChildIndex(canvas.tokens);
-        canvas.stage.addChildAt(backgroundContainer, idx);
-    } catch { canvas.stage.addChild(backgroundContainer); }
-    canvas.stage.addChild(foregroundContainer); // combined tiles + tokens
+    // Place above native tiles but (ideally) below tokens original layer; since we hide originals, exact order is less critical
+    canvas.stage.addChild(foregroundContainer);
 }
 
 function teardownContainers() {
-    for (const c of [backgroundContainer, foregroundContainer]) {
-        try { if (c?.parent) c.parent.removeChild(c); c?.destroy({ children: true }); } catch {}
+    if (foregroundContainer) {
+        try { if (foregroundContainer.parent) foregroundContainer.parent.removeChild(foregroundContainer); foregroundContainer.destroy({ children: true }); } catch {}
     }
-    backgroundContainer = foregroundContainer = null;
+    foregroundContainer = null;
 }
 
 function migrateLegacyIsoLayerFlags() {
@@ -169,7 +160,7 @@ function updateLayerOpacity(layer) {
 
 export function updateTilesOpacity(value) {
     tilesOpacity = Math.max(0, Math.min(1, value));
-    updateLayerOpacity(backgroundContainer);
+    // Only affects cloned foreground tiles; native background tiles keep their document alpha
     updateLayerOpacity(foregroundContainer);
 }
 // Instead of adjusting a global tiles opacity, adjust the OcclusionAlpha per selected tile
@@ -194,7 +185,6 @@ export function decreaseTilesOpacity() { adjustSelectedTilesOcclusionAlpha(-0.1)
 export function resetOpacity() {
     tilesOpacity = 1.0;
     tokensOpacity = 1.0;
-    updateLayerOpacity(backgroundContainer);
     updateLayerOpacity(foregroundContainer);
 }
 
@@ -268,8 +258,7 @@ function getInitialToken() {
 }
 
 function updateAlwaysVisibleElements() {
-    if (!canvas.ready || !backgroundContainer || !foregroundContainer) return;
-    backgroundContainer.removeChildren();
+    if (!canvas.ready || !foregroundContainer) return;
     foregroundContainer.removeChildren();
 
     // Collect foreground tile clones (background tiles left as native Foundry tiles, not cloned)
@@ -292,8 +281,6 @@ function updateAlwaysVisibleElements() {
             foregroundTileEntries.push({ sort, sprite: clone, tile });
         }
     }
-    // Background container no longer used for tile clones; ensure it's empty
-    backgroundContainer.removeChildren();
 
     // Map tile entries to unique depths inside each sort band so tiles of same sort don't share depth
     // Group by sort value first
@@ -373,7 +360,6 @@ function updateAlwaysVisibleElements() {
         foregroundContainer.addChild(e.sprite);
     }
 
-    updateLayerOpacity(backgroundContainer);
     updateLayerOpacity(foregroundContainer);
 
     if (DEBUG_PRINT) {
