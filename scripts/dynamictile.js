@@ -288,9 +288,33 @@ function updateAlwaysVisibleElements() {
     backgroundEntries.sort((a,b)=> a.sort - b.sort);
     for (const e of backgroundEntries) backgroundContainer.addChild(e.sprite);
 
-    // Map tile entries to discrete depth bands with stride spacing
+    // Map tile entries to unique depths inside each sort band so tiles of same sort don't share depth
+    // Group by sort value first
+    const bySort = new Map();
     for (const e of foregroundTileEntries) {
-        e.depth = (e.sort * TILE_STRIDE) + TILE_STRIDE / 2;
+        if (!bySort.has(e.sort)) bySort.set(e.sort, []);
+        bySort.get(e.sort).push(e);
+    }
+    for (const [sortValue, arr] of bySort.entries()) {
+        // Order tiles in this sort band by their bottom Y (then X) so natural vertical stacking is preserved
+        arr.sort((a,b)=> {
+            const ay = a.tile.document.y + a.tile.document.height;
+            const by = b.tile.document.y + b.tile.document.height;
+            if (ay !== by) return ay - by; // higher on screen (smaller y) first (behind)
+            const ax = a.tile.document.x;
+            const bx = b.tile.document.x;
+            return ax - bx;
+        });
+        const base = sortValue * TILE_STRIDE; // reserve a large band per sort value
+        // Leave margins at start/end of band for token mid-placement (100 .. TILE_STRIDE-100)
+        const margin = 100;
+        const usableSpan = TILE_STRIDE - margin * 2; // plenty large
+        const step = Math.max(1, Math.floor(usableSpan / (arr.length + 1)));
+        let offset = margin;
+        for (const entry of arr) {
+            entry.depth = base + offset;
+            offset += step;
+        }
     }
 
     // Token depth placement according to occlusion rule:
