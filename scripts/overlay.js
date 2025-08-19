@@ -356,7 +356,7 @@ export function addDebugOverlays(plan) {
     const tileStyle = new PIXI.TextStyle({ fontSize: 12, fill: '#00ffff', stroke: '#000000', strokeThickness: 3 });
     const tokenStyle = new PIXI.TextStyle({ fontSize: 12, fill: '#ffff00', stroke: '#000000', strokeThickness: 3 });
     for (const t of (plan?.debugTiles || [])) {
-      const txt = new PIXI.Text(`T(${t.gx},${t.gy})`, tileStyle);
+      const txt = new PIXI.Text(`(${t.gx},${t.gy}) z:${t.sort}`, tileStyle);
       txt.anchor.set(0.5, 1);
       txt.position.set(t.px, t.py - 4);
       txt.zIndex = (t.gx ?? 0) + (t.gy ?? 0);
@@ -364,7 +364,7 @@ export function addDebugOverlays(plan) {
       debugLayer.addChild(txt);
     }
     for (const k of (plan?.debugTokens || [])) {
-      const txt = new PIXI.Text(`K(${k.gx},${k.gy})`, tokenStyle);
+      const txt = new PIXI.Text(`(${k.gx},${k.gy}) z:${k.sort}`, tokenStyle);
       txt.anchor.set(0.5, 1);
       txt.position.set(k.px, k.py - 16);
       txt.zIndex = (k.gx ?? 0) + (k.gy ?? 0);

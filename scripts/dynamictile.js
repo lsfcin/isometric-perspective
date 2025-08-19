@@ -3,12 +3,10 @@ import { ensureWallIdsArray } from './tile.js';
 import { addDebugOverlays } from './overlay.js';
 
 // Module state (refactored two-layer system)
-let backgroundContainer;   // cloned background tiles (rendered below tokens)
-let foregroundContainer;   // cloned foreground tiles (rendered above tokens)
-let tilesLayer;            // alias kept for opacity helpers (points to foregroundContainer)
-let tokensLayer;           // legacy dummy (kept so helpers referencing it do not break)
-let tilesOpacity = 1.0;
-let tokensOpacity = 1.0; // retained for backward compatibility with existing opacity UI (no functional change now)
+let backgroundContainer;   // cloned background tiles (rendered below foreground container)
+let foregroundContainer;   // combined foreground tiles + token clones (interwoven ordering)
+let tilesOpacity = 1.0;   // applies to tile sprites (group === 'tiles')
+let tokensOpacity = 1.0;  // applies to token sprites (group === 'tokens')
 let lastControlledToken = null;
 
 function clamp01(n) {
@@ -73,28 +71,22 @@ function setupContainers() {
     backgroundContainer.eventMode = 'passive';
 
     foregroundContainer = new PIXI.Container();
-    foregroundContainer.name = 'IsoForegroundTiles';
-    foregroundContainer.sortableChildren = true;
+    foregroundContainer.name = 'IsoForeground';
+    foregroundContainer.sortableChildren = true; // we will assign zIndex
     foregroundContainer.eventMode = 'passive';
-
-    tilesLayer = foregroundContainer;
-    tokensLayer = new PIXI.Container();
-    tokensLayer.name = 'IsoLegacyTokensLayer';
-    tokensLayer.visible = false;
 
     try {
         const idx = canvas.stage.getChildIndex(canvas.tokens);
         canvas.stage.addChildAt(backgroundContainer, idx);
     } catch { canvas.stage.addChild(backgroundContainer); }
-    canvas.stage.addChild(foregroundContainer);
-    canvas.stage.addChild(tokensLayer);
+    canvas.stage.addChild(foregroundContainer); // combined tiles + tokens
 }
 
 function teardownContainers() {
-    for (const c of [backgroundContainer, foregroundContainer, tokensLayer]) {
+    for (const c of [backgroundContainer, foregroundContainer]) {
         try { if (c?.parent) c.parent.removeChild(c); c?.destroy({ children: true }); } catch {}
     }
-    backgroundContainer = foregroundContainer = tilesLayer = tokensLayer = null;
+    backgroundContainer = foregroundContainer = null;
 }
 
 function migrateLegacyIsoLayerFlags() {
@@ -165,12 +157,11 @@ function handleUpdateWallDoorState(wallDocument, change) {
     if (linkedTiles.length) updateAlwaysVisibleElements();
 }
 
-function updateLayerOpacity(layer, opacity) {
+function updateLayerOpacity(layer) {
     if (!layer) return;
     layer.children.forEach(sprite => {
         const base = typeof sprite.baseAlpha === 'number' ? sprite.baseAlpha : sprite.alpha ?? 1;
-        // Choose multiplier by sprite group to keep tile clones following tile opacity even on tokens layer
-        const group = sprite.opacityGroup || (layer === tokensLayer ? 'tokens' : 'tiles');
+        const group = sprite.opacityGroup === 'tokens' ? 'tokens' : 'tiles';
         const mul = group === 'tiles' ? tilesOpacity : tokensOpacity;
         sprite.alpha = base * mul;
     });
@@ -178,7 +169,8 @@ function updateLayerOpacity(layer, opacity) {
 
 export function updateTilesOpacity(value) {
     tilesOpacity = Math.max(0, Math.min(1, value));
-    if (tilesLayer) updateLayerOpacity(tilesLayer, tilesOpacity);
+    updateLayerOpacity(backgroundContainer);
+    updateLayerOpacity(foregroundContainer);
 }
 // Instead of adjusting a global tiles opacity, adjust the OcclusionAlpha per selected tile
 async function adjustSelectedTilesOcclusionAlpha(delta = 0.1) {
@@ -201,13 +193,14 @@ export function decreaseTilesOpacity() { adjustSelectedTilesOcclusionAlpha(-0.1)
 
 export function resetOpacity() {
     tilesOpacity = 1.0;
-    updateTilesOpacity(tilesOpacity);
-    if (tokensLayer) updateLayerOpacity(tokensLayer, tokensOpacity);
+    tokensOpacity = 1.0;
+    updateLayerOpacity(backgroundContainer);
+    updateLayerOpacity(foregroundContainer);
 }
 
 export function updateTokensOpacity(value) {
     tokensOpacity = Math.max(0, Math.min(1, value));
-    if (tokensLayer) updateLayerOpacity(tokensLayer, tokensOpacity);
+    updateLayerOpacity(foregroundContainer);
 }
 export function increaseTokensOpacity() { updateTokensOpacity(tokensOpacity + 0.1); }
 export function decreaseTokensOpacity() { updateTokensOpacity(tokensOpacity - 0.1); }
@@ -273,51 +266,107 @@ function updateAlwaysVisibleElements() {
     backgroundContainer.removeChildren();
     foregroundContainer.removeChildren();
 
-    const bg = [];
-    const fg = [];
+    // Collect tile clones
+    const backgroundEntries = [];
+    const foregroundTileEntries = [];
+    const TILE_STRIDE = 10000; // large spacing between tile depth bands
     for (const tile of canvas.tiles.placeables) {
         if (!tile?.mesh) continue;
         let layer = tile.document.getFlag(MODULE_ID, 'isoLayer');
         if (layer !== 'background' && layer !== 'foreground') layer = 'foreground';
         const clone = cloneTileSprite(tile);
         if (!clone) continue;
-        // Always hide original mesh so only clones render (avoids mixed ordering issues)
         try { tile.mesh.alpha = 0; } catch {}
         const sort = Number(tile.document.sort) || 0;
-        if (layer === 'background') bg.push({ sort, sprite: clone }); else fg.push({ sort, sprite: clone });
+        if (layer === 'background') backgroundEntries.push({ sort, sprite: clone });
+        else foregroundTileEntries.push({ sort, sprite: clone, tile });
     }
-    bg.sort((a,b)=> a.sort - b.sort);
-    fg.sort((a,b)=> a.sort - b.sort);
-    for (const e of bg) backgroundContainer.addChild(e.sprite);
-    for (const e of fg) foregroundContainer.addChild(e.sprite);
+    backgroundEntries.sort((a,b)=> a.sort - b.sort);
+    for (const e of backgroundEntries) backgroundContainer.addChild(e.sprite);
 
-    updateLayerOpacity(backgroundContainer, tilesOpacity);
-    updateLayerOpacity(foregroundContainer, tilesOpacity);
+    // Map tile entries to discrete depth bands with stride spacing
+    for (const e of foregroundTileEntries) {
+        e.depth = (e.sort * TILE_STRIDE) + TILE_STRIDE / 2;
+    }
 
-    // Debug overlay revival: build a lightweight plan object compatible with addDebugOverlays()
+    // Token depth placement according to occlusion rule:
+    // A tile occludes a token iff tile.x <= token.x && tile.y >= token.y.
+    // Desired: token behind all occluding tiles and in front of all non-occluding tiles.
+    // If impossible due to tile sort ordering overlaps, prioritize being behind occluding tiles.
+    const tokenEntries = [];
+    const tokenDepthMap = new Map();
+    for (const token of canvas.tokens.placeables) {
+        if (!token) continue;
+        const tx = token.document.x; // token top-left
+        const ty = token.document.y;
+        let minOccludingDepth = Infinity;
+        let maxNonOccludingDepth = -Infinity;
+        for (const te of foregroundTileEntries) {
+            const tileDoc = te.tile.document;
+            const tileX = tileDoc.x;
+            const tileY = tileDoc.y;
+            const occludes = (tileX <= tx) && (tileY >= ty);
+            if (occludes) {
+                if (te.depth < minOccludingDepth) minOccludingDepth = te.depth;
+            } else {
+                if (te.depth > maxNonOccludingDepth) maxNonOccludingDepth = te.depth;
+            }
+        }
+        let depth;
+        if (minOccludingDepth === Infinity) {
+            depth = (maxNonOccludingDepth === -Infinity) ? 0 : (maxNonOccludingDepth + 1);
+        } else if (maxNonOccludingDepth < minOccludingDepth) {
+            depth = (maxNonOccludingDepth + minOccludingDepth) / 2;
+        } else {
+            depth = minOccludingDepth - 1;
+        }
+        // Attempt clone but don't skip debug if it fails
+        const clone = cloneTokenSprite(token);
+        if (clone) tokenEntries.push({ depth, sprite: clone, token });
+        tokenDepthMap.set(token.id, depth);
+    }
+
+    const combined = [...foregroundTileEntries, ...tokenEntries];
+    combined.sort((a,b)=> a.depth - b.depth);
+    for (const e of combined) {
+        e.sprite.zIndex = e.depth;
+        foregroundContainer.addChild(e.sprite);
+    }
+
+    updateLayerOpacity(backgroundContainer);
+    updateLayerOpacity(foregroundContainer);
+
     if (DEBUG_PRINT) {
         try {
             const plan = { debugTiles: [], debugTokens: [] };
-            for (const tile of canvas.tiles.placeables) {
-                if (!tile?.mesh) continue;
+            // Foreground tiles: use computed depth actually applied to zIndex, not raw document.sort
+            for (const fe of foregroundTileEntries) {
+                const tile = fe.tile; if (!tile?.mesh) continue;
                 const { gx, gy } = getTileBottomCornerGridXY(tile);
-                plan.debugTiles.push({ gx, gy, px: tile.document.x, py: tile.document.y + tile.document.height });
+                const applied = Math.round(fe.depth); // final zIndex used
+                plan.debugTiles.push({ gx, gy, sort: applied, px: tile.document.x, py: tile.document.y + tile.document.height });
             }
+            // Background tiles: they don't get a depth; use their document.sort (their relative ordering inside background container)
+            for (const be of backgroundEntries) {
+                const tile = be.sprite?.originalTile; if (!tile?.mesh) continue;
+                const { gx, gy } = getTileBottomCornerGridXY(tile);
+                const applied = Number(tile.document.sort) || 0;
+                plan.debugTiles.push({ gx, gy, sort: applied, px: tile.document.x, py: tile.document.y + tile.document.height });
+            }
+            // Tokens: iterate all placeables so we still show debug even if clone failed
             for (const token of canvas.tokens.placeables) {
-                if (!token?.center) continue;
+                if (!token) continue;
                 const { gx, gy } = getTokenGridXY(token);
-                plan.debugTokens.push({ gx, gy, px: token.center.x, py: token.center.y });
-            }
-            if (tokensLayer) {
-                tokensLayer.visible = true; // ensure visible for debug text
-                tokensLayer.removeChildren(); // clear previous debug labels
+                const doc = token.document;
+                const w = (Number(doc.width) || 1) * (canvas.grid?.size || 1);
+                const h = (Number(doc.height) || 1) * (canvas.grid?.size || 1);
+                const px = Number(doc.x) + w * 0.5;
+                const py = Number(doc.y) + h; // bottom
+                const depth = tokenDepthMap.get(token.id);
+                if (depth !== undefined) plan.debugTokens.push({ gx, gy, sort: Math.round(depth), px, py });
             }
             addDebugOverlays(plan);
         } catch (e) { if (DEBUG_PRINT) console.warn('addDebugOverlays failed', e); }
-    } else if (tokensLayer) {
-        // Hide legacy/debug layer when not debugging
-        tokensLayer.visible = false;
-        tokensLayer.removeChildren();
     }
 }
 
