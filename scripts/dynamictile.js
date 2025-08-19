@@ -92,6 +92,18 @@ function migrateLegacyIsoLayerFlags() {
             updates.push({ _id: doc.id, [`flags.${MODULE_ID}.isoLayer`]: layer });
         }
         if (updates.length) canvas.scene.updateEmbeddedDocuments('Tile', updates);
+        // Migrate legacy OcclusionAlpha -> OpacityOnOccluding if new flag absent
+        const opMigrations = [];
+        for (const t of canvas.tiles.placeables) {
+            const doc = t.document;
+            const hasNew = doc.getFlag(MODULE_ID, 'OpacityOnOccluding');
+            if (hasNew !== undefined) continue;
+            const old = doc.getFlag(MODULE_ID, 'OcclusionAlpha');
+            if (old !== undefined && old !== null && old !== 1) {
+                opMigrations.push({ _id: doc.id, [`flags.${MODULE_ID}.OpacityOnOccluding`]: clamp01(old) });
+            }
+        }
+        if (opMigrations.length) canvas.scene.updateEmbeddedDocuments('Tile', opMigrations);
     } catch (e) { if (DEBUG_PRINT) console.warn('Iso layer migration failed', e); }
 }
 
@@ -125,6 +137,8 @@ async function handleTileUpdate(tileDocument, change) {
 function handleControlToken(token, controlled) {
     if (controlled) lastControlledToken = token;
     updateAlwaysVisibleElements();
+    // After rebuild, reapply per-token opacity (already done inside updateLayerOpacity, but ensure immediate)
+    updateLayerOpacity(foregroundContainer);
 }
 
 function handleUpdateToken(tokenDocument) {
@@ -132,6 +146,7 @@ function handleUpdateToken(tokenDocument) {
         lastControlledToken = canvas.tokens.get(tokenDocument.id);
     }
     updateAlwaysVisibleElements();
+    updateLayerOpacity(foregroundContainer);
 }
 
 function handleDeleteToken(token) {
@@ -150,11 +165,28 @@ function handleUpdateWallDoorState(wallDocument, change) {
 
 function updateLayerOpacity(layer) {
     if (!layer) return;
+    const viewToken = getInitialToken();
+    const vtX = viewToken?.document?.x ?? null;
+    const vtY = viewToken?.document?.y ?? null;
     layer.children.forEach(sprite => {
         const base = typeof sprite.baseAlpha === 'number' ? sprite.baseAlpha : sprite.alpha ?? 1;
         const group = sprite.opacityGroup === 'tokens' ? 'tokens' : 'tiles';
         const mul = group === 'tiles' ? tilesOpacity : tokensOpacity;
-        sprite.alpha = base * mul;
+        let alpha = base * mul;
+        // Apply per-token occluding opacity only for tile clones if a viewpoint token exists
+        if (group === 'tiles' && viewToken && vtX !== null && vtY !== null && sprite.originalTile) {
+            try {
+                const tdoc = sprite.originalTile.document;
+                const tileX = tdoc.x;
+                const tileBottomY = tdoc.y + tdoc.height - 0.0001;
+                const occludesViewed = (tileX <= vtX) && (tileBottomY >= vtY);
+                if (occludesViewed) {
+                    const perFlag = tdoc.getFlag(MODULE_ID, 'OpacityOnOccluding');
+                    if (perFlag !== undefined) alpha = alpha * clamp01(perFlag);
+                }
+            } catch {}
+        }
+        sprite.alpha = alpha;
     });
 }
 
@@ -206,8 +238,8 @@ function cloneTileSprite(tilePlaceable) {
     try { sprite.rotation = mesh.rotation; if (mesh.skew) sprite.skew.set(mesh.skew.x, mesh.skew.y); } catch {}
     try { sprite.scale.set(mesh.scale.x, mesh.scale.y); } catch { sprite.scale.set(1, 1); }
     const tileDocAlpha = typeof tilePlaceable?.document?.alpha === 'number' ? tilePlaceable.document.alpha : 1;
-    sprite.baseAlpha = tileDocAlpha;
-    sprite.alpha = tileDocAlpha * tilesOpacity;
+    sprite.baseAlpha = tileDocAlpha; // store document alpha only
+    sprite.alpha = tileDocAlpha * tilesOpacity; // initial composite; may be reduced per view token later
     sprite.opacityGroup = 'tiles';
     sprite.eventMode = 'passive';
     sprite.originalTile = tilePlaceable;
@@ -379,11 +411,21 @@ function buildDebugPlan(foregroundTileEntries, backgroundTileDocs, tokenDepthMap
     if (!DEBUG_PRINT) return;
     try {
         const plan = { debugTiles: [], debugTokens: [] };
+        const viewToken = getInitialToken();
+        const vtX = viewToken?.document?.x ?? null;
+        const vtY = viewToken?.document?.y ?? null;
         for (const tileEntry of foregroundTileEntries) {
             const tile = tileEntry.tile; if (!tile?.mesh) continue;
             const { gx, gy } = getTileBottomCornerGridXY(tile);
             const applied = Math.round(tileEntry.depth);
-            plan.debugTiles.push({ gx, gy, sort: applied, px: tile.document.x, py: tile.document.y + tile.document.height });
+            let occ = false;
+            if (viewToken && vtX !== null && vtY !== null) {
+                const tdoc = tile.document;
+                const tileX = tdoc.x;
+                const tileBottomY = tdoc.y + tdoc.height - 0.0001;
+                occ = (tileX <= vtX) && (tileBottomY >= vtY);
+            }
+            plan.debugTiles.push({ gx, gy, sort: applied, px: tile.document.x, py: tile.document.y + tile.document.height, occ });
         }
         for (const tile of backgroundTileDocs) {
             if (!tile?.mesh) continue;

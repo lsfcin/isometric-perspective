@@ -62,6 +62,8 @@ export function extractTilePreset(tileDocument) {
   'isoTileDisabled','scale','tokenFlipped','offsetX','offsetY',
   // New layer flag replacing OccludingTile boolean UX
   'isoLayer',
+  // Per-token occluding opacity
+  'OpacityOnOccluding',
   // Legacy flags kept for backward compatibility; will be ignored by new layer system if present
   'OccludingTile','OcclusionAlpha','linkedWallIds','linkedWallAnchors'
   ];

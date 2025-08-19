@@ -388,7 +388,8 @@ export function addDebugOverlays(plan) {
     const tileStyle = new PIXI.TextStyle({ fontSize: 12, fill: '#00ffff', stroke: '#000000', strokeThickness: 3 });
     const tokenStyle = new PIXI.TextStyle({ fontSize: 12, fill: '#ffff00', stroke: '#000000', strokeThickness: 3 });
     for (const tile of (plan?.debugTiles || [])) {
-      const txt = new PIXI.Text(`(${tile.gx},${tile.gy}) z:${tile.sort}`, tileStyle);
+      const occFlag = tile.occ ? ' occ' : '';
+      const txt = new PIXI.Text(`(${tile.gx},${tile.gy}) z:${tile.sort}${occFlag}`, tileStyle);
       txt.anchor.set(0.5, 1);
       txt.position.set(tile.px, tile.py - 4);
       txt.zIndex = (tile.gx ?? 0) + (tile.gy ?? 0);

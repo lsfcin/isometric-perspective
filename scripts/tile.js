@@ -178,6 +178,7 @@ async function handleRenderTileConfig(app, html, data) {
     isBackground: isoLayer === 'background',
     // Retain legacy occlusion alpha only for foreground tiles for backward compatibility (hidden otherwise)
     occlusionAlpha: app.object.getFlag(MODULE_ID, 'OcclusionAlpha') ?? 1,
+  opacityOnOccluding: app.object.getFlag(MODULE_ID, 'OpacityOnOccluding') ?? 0.5,
   useImagePreset: app.object.getFlag(MODULE_ID, 'useImagePreset') ?? true
   });
 
@@ -199,6 +200,8 @@ async function handleRenderTileConfig(app, html, data) {
   const layerSelect = html.find('select[name="flags.isometric-perspective.isoLayer"]');
   const occAlphaSlider = html.find('input[name="flags.isometric-perspective.OcclusionAlpha"]');
   const occAlphaGroup = html.find('.occlusion-alpha-group');
+  const occOpacitySlider = html.find('input[name="flags.isometric-perspective.OpacityOnOccluding"]');
+  const occOpacityGroup = html.find('.occluding-opacity-group');
   // Preset checkbox (declare early so we can set default before later code references)
   const usePresetCheckbox = html.find('input[name="flags.isometric-perspective.useImagePreset"]');
   
@@ -214,6 +217,14 @@ async function handleRenderTileConfig(app, html, data) {
   // Update displayed numeric label beside slider
   const occAlphaValueSpan = occAlphaSlider.closest('.form-fields').find('.range-value');
   occAlphaValueSpan.text(alphaDefault);
+  // Initialize occluding opacity slider numeric label
+  if (occOpacitySlider.length) {
+    const existing = app.object.getFlag(MODULE_ID, 'OpacityOnOccluding');
+    const defaultVal = existing === undefined ? 0.5 : existing;
+    occOpacitySlider.val(defaultVal);
+    const occOpValSpan = occOpacitySlider.closest('.form-fields').find('.range-value');
+    occOpValSpan.text(defaultVal);
+  }
   if (usePresetCheckbox && usePresetCheckbox.length) usePresetCheckbox.prop('checked', usePresetDefault);
 
   // On Flip Tile toggle: invert Y offset and swap rectangle width/height; keep Isometric tab active
@@ -279,6 +290,7 @@ async function handleRenderTileConfig(app, html, data) {
     const layer = layerSelect.val();
     // Hide occlusion alpha when background (no occlusion effect); show only for foreground
     occAlphaGroup.css('display', layer === 'foreground' ? 'flex' : 'none');
+  occOpacityGroup.css('display', layer === 'foreground' ? 'flex' : 'none');
   };
   syncOccGroup();
   layerSelect.on('change', () => syncOccGroup());
@@ -291,6 +303,12 @@ async function handleRenderTileConfig(app, html, data) {
   // Live update for Isometric Scale slider label near that slider only
   const scaleSlider = html.find('input[name="flags.isometric-perspective.scale"]');
   scaleSlider.on('input change', function() {
+    const container = $(this).closest('.form-fields');
+    container.find('.range-value').text(this.value);
+  });
+
+  // Live update for occluding opacity slider label
+  occOpacitySlider.on('input change', function() {
     const container = $(this).closest('.form-fields');
     container.find('.range-value').text(this.value);
   });
@@ -321,6 +339,14 @@ async function handleRenderTileConfig(app, html, data) {
       await app.object.setFlag(MODULE_ID, 'OcclusionAlpha', v);
     } else {
       try { await app.object.unsetFlag(MODULE_ID, 'OcclusionAlpha'); } catch {}
+    }
+
+    // Persist per-token occluding opacity only if foreground
+    if (occOpacitySlider.length && layerSelect.val() === 'foreground') {
+      const v2 = Math.max(0, Math.min(1, parseFloat(occOpacitySlider.val())));
+      await app.object.setFlag(MODULE_ID, 'OpacityOnOccluding', v2);
+    } else {
+      try { await app.object.unsetFlag(MODULE_ID, 'OpacityOnOccluding'); } catch {}
     }
 
     // Persist simplified auto preset usage opt-in
