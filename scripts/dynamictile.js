@@ -58,6 +58,8 @@ function registerTokenHooks() {
 function registerMiscHooks() {
     Hooks.on('sightRefresh', () => { if (canvas.ready) updateAlwaysVisibleElements(); });
     Hooks.on('updateWall', handleUpdateWallDoorState);
+    Hooks.on('createWall', () => updateAlwaysVisibleElements());
+    Hooks.on('deleteWall', () => updateAlwaysVisibleElements());
 }
 
 // ---- Hook handlers ----
@@ -298,10 +300,32 @@ function collectTileEntries() {
         let layer = tile.document.getFlag(MODULE_ID, 'isoLayer');
         if (layer !== 'background' && layer !== 'foreground') layer = 'foreground';
         const sort = Number(tile.document.sort) || 0;
+        // Door-open hide: if any linked wall is a door (door>0) whose state is open (ds===1), hide tile art
+        let hideForOpenDoor = false;
+        try {
+            const linkedIds = ensureWallIdsArray(tile.document.getFlag(MODULE_ID, 'linkedWallIds'));
+            if (linkedIds.length) {
+                for (const wid of linkedIds) {
+                    const wall = canvas.walls.get(wid);
+                    const wdoc = wall?.document;
+                    if (!wdoc) continue;
+                    const isDoor = Number(wdoc.door) > 0; // 1=door,2=secret
+                    const isOpen = Number(wdoc.ds) === 1; // 1=open
+                    if (isDoor && isOpen) { hideForOpenDoor = true; break; }
+                }
+            }
+        } catch {}
         if (layer === 'background') {
-            try { tile.mesh.alpha = (typeof tile.document.alpha === 'number') ? tile.document.alpha : 1; } catch {}
-            backgroundTileDocs.push(tile);
+            try {
+                const baseAlpha = (typeof tile.document.alpha === 'number') ? tile.document.alpha : 1;
+                tile.mesh.alpha = hideForOpenDoor ? 0 : baseAlpha;
+            } catch {}
+            if (!hideForOpenDoor) backgroundTileDocs.push(tile); // if hidden we omit from debug ordering of background
         } else {
+            if (hideForOpenDoor) {
+                try { tile.mesh.alpha = 0; } catch {}
+                continue; // skip cloning entirely while hidden
+            }
             const clone = cloneTileSprite(tile);
             if (!clone) continue;
             try { tile.mesh.alpha = 0; } catch {}
