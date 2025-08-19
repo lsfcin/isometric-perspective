@@ -287,20 +287,6 @@ function cloneTokenSprite(token) {
     }
 }
 
-function getInitialToken() {
-    const controlled = canvas.tokens.controlled[0];
-    if (controlled) return controlled;
-    if (lastControlledToken) return lastControlledToken;
-    const actor = game.user.character;
-    if (actor) {
-        const tokenA = canvas.tokens.placeables.find(t => t.actor?.id === actor.id);
-        if (tokenA) return tokenA;
-    }
-    const availableToken = canvas.tokens.placeables.find(t => t.observer);
-    if (availableToken) return availableToken;
-    return null;
-}
-
 // --- Refactored helpers for updateAlwaysVisibleElements ---
 const TILE_STRIDE = 10000; // large spacing between tile depth bands
 
