@@ -135,7 +135,11 @@ async function handleTileUpdate(tileDocument, change) {
 }
 
 function handleControlToken(token, controlled) {
-    if (controlled) lastControlledToken = token;
+    if (controlled) lastControlledToken = token; else {
+        // If no tokens remain controlled, clear lastControlledToken so we fall back to all tokens view
+        const stillControlled = canvas.tokens.controlled.length; // includes this one before removal? event fires after change
+        if (!stillControlled) lastControlledToken = null;
+    }
     updateAlwaysVisibleElements();
     // After rebuild, reapply per-token opacity (already done inside updateLayerOpacity, but ensure immediate)
     updateLayerOpacity(foregroundContainer);
@@ -165,22 +169,29 @@ function handleUpdateWallDoorState(wallDocument, change) {
 
 function updateLayerOpacity(layer) {
     if (!layer) return;
-    const viewToken = getInitialToken();
-    const vtX = viewToken?.document?.x ?? null;
-    const vtY = viewToken?.document?.y ?? null;
+    // Determine viewpoint tokens: if any controlled -> those; else if lastControlledToken still set (legacy) -> that; else all visible tokens
+    let viewTokens = [];
+    const controlled = canvas.tokens.controlled.filter(t => !!t.visible);
+    if (controlled.length) viewTokens = controlled;
+    else if (lastControlledToken && lastControlledToken.visible) viewTokens = [lastControlledToken];
+    else viewTokens = canvas.tokens.placeables.filter(t => t.visible);
+    const tokenPositions = viewTokens.map(t => ({ x: t.document.x, y: t.document.y }));
     layer.children.forEach(sprite => {
         const base = typeof sprite.baseAlpha === 'number' ? sprite.baseAlpha : sprite.alpha ?? 1;
         const group = sprite.opacityGroup === 'tokens' ? 'tokens' : 'tiles';
         const mul = group === 'tiles' ? tilesOpacity : tokensOpacity;
         let alpha = base * mul;
-        // Apply per-token occluding opacity only for tile clones if a viewpoint token exists
-        if (group === 'tiles' && viewToken && vtX !== null && vtY !== null && sprite.originalTile) {
+        // Apply per-token occluding opacity if any viewpoint token exists (union rule)
+        if (group === 'tiles' && tokenPositions.length && sprite.originalTile) {
             try {
                 const tdoc = sprite.originalTile.document;
                 const tileX = tdoc.x;
                 const tileBottomY = tdoc.y + tdoc.height - 0.0001;
-                const occludesViewed = (tileX <= vtX) && (tileBottomY >= vtY);
-                if (occludesViewed) {
+                let occludesAny = false;
+                for (const pos of tokenPositions) {
+                    if (tileX <= pos.x && tileBottomY >= pos.y) { occludesAny = true; break; }
+                }
+                if (occludesAny) {
                     const perFlag = tdoc.getFlag(MODULE_ID, 'OpacityOnOccluding');
                     if (perFlag !== undefined) alpha = alpha * clamp01(perFlag);
                 }
@@ -411,19 +422,23 @@ function buildDebugPlan(foregroundTileEntries, backgroundTileDocs, tokenDepthMap
     if (!DEBUG_PRINT) return;
     try {
         const plan = { debugTiles: [], debugTokens: [] };
-        const viewToken = getInitialToken();
-        const vtX = viewToken?.document?.x ?? null;
-        const vtY = viewToken?.document?.y ?? null;
+        // Match updateLayerOpacity viewpoint logic for debug occlusion flag
+        let viewTokens = [];
+        const controlled = canvas.tokens.controlled.filter(t => !!t.visible);
+        if (controlled.length) viewTokens = controlled;
+        else if (lastControlledToken && lastControlledToken.visible) viewTokens = [lastControlledToken];
+        else viewTokens = canvas.tokens.placeables.filter(t => t.visible);
+        const tokenPositions = viewTokens.map(t => ({ x: t.document.x, y: t.document.y }));
         for (const tileEntry of foregroundTileEntries) {
             const tile = tileEntry.tile; if (!tile?.mesh) continue;
             const { gx, gy } = getTileBottomCornerGridXY(tile);
             const applied = Math.round(tileEntry.depth);
             let occ = false;
-            if (viewToken && vtX !== null && vtY !== null) {
+            if (tokenPositions.length) {
                 const tdoc = tile.document;
                 const tileX = tdoc.x;
                 const tileBottomY = tdoc.y + tdoc.height - 0.0001;
-                occ = (tileX <= vtX) && (tileBottomY >= vtY);
+                for (const pos of tokenPositions) { if (tileX <= pos.x && tileBottomY >= pos.y) { occ = true; break; } }
             }
             plan.debugTiles.push({ gx, gy, sort: applied, px: tile.document.x, py: tile.document.y + tile.document.height, occ });
         }

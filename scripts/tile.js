@@ -147,6 +147,42 @@ function injectTileLayerButtons(controls) {
     onClick: () => flipSelectedTiles(),
     button: true
   });
+  // Occluding opacity adjustment buttons (appear with selection, below flip)
+  async function adjustSelectedOccludingOpacity(delta) {
+    try {
+      const selected = Array.from(canvas.tiles?.controlled || []);
+      if (!selected.length) return;
+      const updates = [];
+      for (const t of selected) {
+        const doc = t.document;
+        // Only relevant/visible for foreground tiles
+        const layer = doc.getFlag(MODULE_ID, 'isoLayer');
+        if (layer === 'background') continue;
+        const cur = Number(doc.getFlag(MODULE_ID, 'OpacityOnOccluding'));
+        const base = Number.isFinite(cur) ? cur : 0.5;
+        let next = base + delta;
+        if (!Number.isFinite(next)) next = base;
+        next = Math.max(0, Math.min(1, next));
+        updates.push({ _id: doc.id, [`flags.${MODULE_ID}.OpacityOnOccluding`]: next });
+      }
+      if (updates.length) await canvas.scene.updateEmbeddedDocuments('Tile', updates);
+    } catch (e) { if (DEBUG_PRINT) console.warn('adjustSelectedOccludingOpacity failed', e); }
+  }
+  // Ensure increase button is inserted before decrease for visual order
+  if (!tilesCtl.tools.some(t => t?.name === 'tile-occ-opacity-inc')) tilesCtl.tools.push({
+    name: 'tile-occ-opacity-inc',
+    title: 'Increase Occlusion Opacity',
+    icon: 'fa-solid fa-circle-plus',
+    onClick: () => adjustSelectedOccludingOpacity(+0.05),
+    button: true
+  });
+  if (!tilesCtl.tools.some(t => t?.name === 'tile-occ-opacity-dec')) tilesCtl.tools.push({
+    name: 'tile-occ-opacity-dec',
+    title: 'Decrease Occlusion Opacity',
+    icon: 'fa-solid fa-circle-minus',
+    onClick: () => adjustSelectedOccludingOpacity(-0.05),
+    button: true
+  });
 
   // Inject CSS once to make "active" state for our layer buttons look like a mild brightness boost
   // without the default pressed/contour styling.
