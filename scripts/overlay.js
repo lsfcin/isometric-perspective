@@ -2,6 +2,7 @@
 const MODULE_ID = 'isometric-perspective';
 let hoverLayer = null;
 let debugLayer = null; // separate layer for debug coordinate text
+let _escKeyHandler = null;
 
 function bringOverlayToTop() {
   try {
@@ -51,6 +52,7 @@ export function registerOverlayHooks() {
         debugLayer.destroy({ children: true });
         debugLayer = null;
       }
+  if (_escKeyHandler) { try { window.removeEventListener('keydown', _escKeyHandler, true); } catch {} _escKeyHandler = null; }
     } catch {}
   });
 
@@ -61,6 +63,8 @@ export function registerOverlayHooks() {
   Hooks.on('sightRefresh', bringOverlayToTop);
   Hooks.on('updateScene', bringOverlayToTop);
   Hooks.on('preUpdateScene', bringOverlayToTop);
+
+  // Removed ESC auto-clear: highlight persists until actual unhover event.
 
   // Re-raise debug layer too
   Hooks.on('isometricOverlayBringToTop', () => {
@@ -74,6 +78,16 @@ export function registerOverlayHooks() {
       bringOverlayToTop();
     } catch {}
   });
+
+  // ESC fallback: simulate unhover (clear any token hover highlights) when user presses Escape.
+  if (!_escKeyHandler) {
+    _escKeyHandler = (ev) => {
+      if (ev.key === 'Escape') {
+        try { clearAllTokenGridHighlights(); } catch {}
+      }
+    };
+    try { window.addEventListener('keydown', _escKeyHandler, true); } catch {}
+  }
   Hooks.on('refreshToken', (token) => { try { if (token?.hover) updateTokenGridHighlight(token); } catch {} bringOverlayToTop(); });
   Hooks.on('updateToken', (tokenDocument) => {
     try { const token = canvas.tokens.get(tokenDocument.id); if (token?.hover) updateTokenGridHighlight(token); } catch {}
@@ -206,6 +220,15 @@ function clearTokenGridHighlight(token) {
 
 function updateTokenGridHighlight(token) {
   drawTokenGridHighlight(token);
+}
+
+function clearAllTokenGridHighlights() {
+  try {
+    if (!hoverLayer) return;
+    // Remove all children whose name starts with TokenGridHover-
+    const toRemove = hoverLayer.children.filter(c => typeof c?.name === 'string' && c.name.startsWith('TokenGridHover-'));
+    for (const c of toRemove) hoverLayer.removeChild(c);
+  } catch {}
 }
 
 function drawTileSelectionOverlay(tile) {
