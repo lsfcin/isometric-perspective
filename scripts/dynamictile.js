@@ -1,5 +1,4 @@
 import { MODULE_ID, DEBUG_PRINT, FOUNDRY_VERSION } from './main.js';
-import { ISOMETRIC_CONST } from './consts.js';
 
 // Module state
 let alwaysVisibleContainer;
@@ -564,62 +563,6 @@ function getLinkedWalls(tile) {
     return linkedWallIds.map(id => canvas.walls.get(id)).filter(Boolean);
 }
 
-function calculateAngle(x1, y1, x2, y2) {
-    const dx = x2 - x1;
-    const dy = y2 - y1;
-    return Math.atan2(Math.abs(dy), Math.abs(dx)) * (180 / Math.PI);
-}
-
-function getWallDirection(x1, y1, x2, y2) {
-    if (x2 > x1) return y2 < y1 ? 'forward' : 'backward';
-    return y2 > y1 ? 'forward' : 'backward';
-}
-
-function isTokenInFrontOfWall(token, wall) {
-    if (FOUNDRY_VERSION === 11) {
-        if (!wall?.A || !wall?.B || !token?.center) return false;
-    } else {
-        if (!wall?.edge?.a || !wall?.edge?.b || !token?.center) return false;
-    }
-
-    const { x: x1, y: y1 } = FOUNDRY_VERSION === 11 ? wall.A : wall.edge.a;
-    const { x: x2, y: y2 } = FOUNDRY_VERSION === 11 ? wall.B : wall.edge.b;
-    const { x: tokenX, y: tokenY } = token.center;
-
-    if (Math.abs(y1 - y2) < 0.001) return tokenY > y1; // horizontal
-    if (Math.abs(x1 - x2) < 0.001) return tokenX < x1; // vertical
-
-    const angle = calculateAngle(x1, y1, x2, y2);
-    const wallDirection = getWallDirection(x1, y1, x2, y2);
-    const slope = (y2 - y1) / (x2 - x1);
-    const wallYAtTokenX = slope * (tokenX - x1) + y1;
-    const difference = tokenY - wallYAtTokenX;
-
-    if (wallDirection === 'forward') { // '/'
-        return angle < 45 ? difference > 0 : difference < 0;
-    } else { // '\\'
-        return difference > 0;
-    }
-}
-
-function canTokenSeeWall(token, wall) {
-    if (!wall || !token) return false;
-    if (!isTokenInFrontOfWall(token, wall)) return false;
-
-    const wallPoints = FOUNDRY_VERSION === 11 ? [wall.A, wall.center, wall.B] : [wall.edge.a, wall.center, wall.edge.b];
-    const tokenPosition = token.center;
-    for (const point of wallPoints) {
-        const visibilityTest = FOUNDRY_VERSION === 11
-            ? canvas.effects.visibility.testVisibility(point, { tolerance: 2 })
-            : canvas.visibility?.testVisibility(point, { tolerance: 2 });
-        if (!visibilityTest) continue;
-        const ray = new Ray(tokenPosition, point);
-        const collision = CONFIG.Canvas.polygonBackends.sight.testCollision(ray.B, ray.A, { mode: 'any', type: 'sight' });
-        if (!collision) return true;
-    }
-    return false;
-}
-
 function canTokenSeeToken(sourceToken, targetToken) {
     if (!sourceToken || !targetToken) return false;
     return canvas.visibility?.testVisibility(targetToken.center, { tolerance: 2 });
@@ -646,58 +589,4 @@ function getTileBottomCornerGridXY(tile) {
     const gx = Math.floor(x / gs);
     const gy = Math.floor(yBottomEdge / gs);
     return { gx, gy };
-}
-
-// Geometry helpers for robust occluder selection
-function safeGetBounds(displayObject) {
-    try {
-        if (!displayObject) return null;
-        const b = displayObject.getBounds?.();
-        if (!b || !isFinite(b.x) || !isFinite(b.y) || !isFinite(b.width) || !isFinite(b.height)) return null;
-        if (b.width <= 0 || b.height <= 0) return null;
-        return new PIXI.Rectangle(b.x, b.y, b.width, b.height);
-    } catch {
-        return null;
-    }
-}
-
-function rectsIntersect(a, b) {
-    if (!a || !b) return false;
-    return !(a.right <= b.x || b.right <= a.x || a.bottom <= b.y || b.bottom <= a.y);
-}
-
-function rectCenter(r) {
-    return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
-}
-
-function nearestByDistance(tiles, point) {
-    if (!tiles?.length || !point) return null;
-    let best = null;
-    let bestD2 = Infinity;
-    for (const te of tiles) {
-        const rb = safeGetBounds(te.tile?.mesh);
-        const c = rb ? rectCenter(rb) : { x: te.tile?.document?.x ?? 0, y: te.tile?.document?.y ?? 0 };
-        const dx = c.x - point.x;
-        const dy = c.y - point.y;
-        const d2 = dx * dx + dy * dy;
-        if (d2 < bestD2) { bestD2 = d2; best = te; }
-    }
-    return best;
-}
-
-// Grid-only selection: choose occluder minimizing (gx - tx) + (ty - gy), with depth tie-breaker
-function selectNearestGridOccluder(tiles, gx, gy) {
-    if (!tiles?.length) return null;
-    let best = null;
-    let bestScore = Infinity;
-    for (const te of tiles) {
-        const dx = gx - te.gx; // positive
-        const dy = te.gy - gy; // positive
-        const score = dx + dy; // Manhattan in grid space toward the tile corner
-        if (score < bestScore) { bestScore = score; best = te; }
-        else if (score === bestScore) {
-            if (!best || te.depth > best.depth) best = te; // tie-break by deeper tile corner
-        }
-    }
-    return best;
 }
