@@ -26,7 +26,7 @@ function drawAltTokenHighlights() {
       const pxH = hUnits * grid;
       const x = Number(token.document?.x ?? token.x ?? token.position?.x) || 0;
       const y = Number(token.document?.y ?? token.y ?? token.position?.y) || 0;
-      const stroke = 0x33bbff; // blue-ish
+  const stroke = token.controlled ? 0xffa500 : 0x33bbff; // orange if selected, blue otherwise
       // outer dark for contrast
       g.lineStyle(4, 0x000000, 0.30); g.drawRect(x, y, pxW, pxH);
       g.lineStyle(2, stroke, 0.90); g.drawRect(x, y, pxW, pxH);
@@ -166,6 +166,15 @@ export function registerOverlayHooks() {
     bringOverlayToTop();
   });
 
+  // Token selection changes: update hover highlight color and alt highlights
+  Hooks.on('controlToken', (token, controlled) => {
+    try {
+      if (token?.hover) updateTokenGridHighlight(token);
+      if (_altHighlightActive) { clearAltTokenHighlights(); drawAltTokenHighlights(); }
+    } catch {}
+    bringOverlayToTop();
+  });
+
   // Allow other modules of this package to request re-raising the overlay
   Hooks.on('isometricOverlayBringToTop', () => {
     bringOverlayToTop();
@@ -272,8 +281,7 @@ function drawTokenGridHighlight(token) {
     const pxH = hUnits * grid;
     const x = Number(token.document?.x ?? token.x ?? token.position?.x) || 0;
     const y = Number(token.document?.y ?? token.y ?? token.position?.y) || 0;
-    const baseColor = getTokenOwnerColorNumber ? getTokenOwnerColorNumber(token, 0xffa500) : 0xffa500;
-  const outline = baseColor;
+  const outline = token.controlled ? 0xffa500 : 0x33bbff; // orange if selected, blue otherwise
   // Outer dark stroke for contrast then colored stroke (no fill)
   g.lineStyle(4, 0x000000, 0.35);
   g.drawRect(x, y, pxW, pxH);
