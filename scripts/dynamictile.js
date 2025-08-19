@@ -258,21 +258,18 @@ function getInitialToken() {
     return null;
 }
 
-function updateAlwaysVisibleElements() {
-    if (!canvas.ready || !foregroundContainer) return;
-    foregroundContainer.removeChildren();
+// --- Refactored helpers for updateAlwaysVisibleElements ---
+const TILE_STRIDE = 10000; // large spacing between tile depth bands
 
-    // Collect foreground tile clones (background tiles left as native Foundry tiles, not cloned)
+function collectTileEntries() {
     const backgroundTileDocs = [];
     const foregroundTileEntries = [];
-    const TILE_STRIDE = 10000; // large spacing between tile depth bands
     for (const tile of canvas.tiles.placeables) {
         if (!tile?.mesh) continue;
         let layer = tile.document.getFlag(MODULE_ID, 'isoLayer');
         if (layer !== 'background' && layer !== 'foreground') layer = 'foreground';
         const sort = Number(tile.document.sort) || 0;
         if (layer === 'background') {
-            // Ensure original tile mesh is visible with its document alpha
             try { tile.mesh.alpha = (typeof tile.document.alpha === 'number') ? tile.document.alpha : 1; } catch {}
             backgroundTileDocs.push(tile);
         } else {
@@ -282,28 +279,27 @@ function updateAlwaysVisibleElements() {
             foregroundTileEntries.push({ sort, sprite: clone, tile });
         }
     }
+    return { backgroundTileDocs, foregroundTileEntries };
+}
 
-    // Map tile entries to unique depths inside each sort band so tiles of same sort don't share depth
-    // Group by sort value first
+function assignTileDepths(foregroundTileEntries) {
     const bySort = new Map();
     for (const tile of foregroundTileEntries) {
         if (!bySort.has(tile.sort)) bySort.set(tile.sort, []);
         bySort.get(tile.sort).push(tile);
     }
     for (const [sortValue, arr] of bySort.entries()) {
-        // Order tiles in this sort band by their bottom Y (then X) so natural vertical stacking is preserved
         arr.sort((a,b)=> {
             const ay = a.tile.document.y + a.tile.document.height;
             const by = b.tile.document.y + b.tile.document.height;
-            if (ay !== by) return ay - by; // higher on screen (smaller y) first (behind)
+            if (ay !== by) return ay - by;
             const ax = a.tile.document.x;
             const bx = b.tile.document.x;
             return ax - bx;
         });
-        const base = sortValue * TILE_STRIDE; // reserve a large band per sort value
-        // Leave margins at start/end of band for token mid-placement (100 .. TILE_STRIDE-100)
+        const base = sortValue * TILE_STRIDE;
         const margin = 100;
-        const usableSpan = TILE_STRIDE - margin * 2; // plenty large
+        const usableSpan = TILE_STRIDE - margin * 2;
         const step = Math.max(1, Math.floor(usableSpan / (arr.length + 1)));
         let offset = margin;
         for (const entry of arr) {
@@ -311,25 +307,22 @@ function updateAlwaysVisibleElements() {
             offset += step;
         }
     }
+}
 
-    // Token depth placement according to occlusion rule:
-    // A tile occludes a token iff tile.x <= token.x && tile.y >= token.y.
-    // Desired: token behind all occluding tiles and in front of all non-occluding tiles.
-    // If impossible due to tile sort ordering overlaps, prioritize being behind occluding tiles.
+function computeTokenEntries(foregroundTileEntries) {
     const tokenEntries = [];
     const tokenDepthMap = new Map();
     for (const token of canvas.tokens.placeables) {
         if (!token) continue;
-        // Skip entirely if not visible (still compute depth? Only needed for relative ordering among visible ones).
         const tokenIsVisible = !!token.visible;
-        const tokenX = token.document.x; // token top-left
+        const tokenX = token.document.x;
         const tokenY = token.document.y;
         let minOccludingDepth = Infinity;
         let maxNonOccludingDepth = -Infinity;
-        for (const tile of foregroundTileEntries) {            
+        for (const tile of foregroundTileEntries) {
             const tileDoc = tile.tile.document;
             const tileX = tileDoc.x;
-            const tileY = tileDoc.y + tileDoc.height - 0.0001; // bottom edge
+            const tileY = tileDoc.y + tileDoc.height - 0.0001;
             const occludes = (tileX <= tokenX) && (tileY >= tokenY);
             if (occludes) {
                 if (tile.depth < minOccludingDepth) minOccludingDepth = tile.depth;
@@ -338,14 +331,9 @@ function updateAlwaysVisibleElements() {
             }
         }
         let depth;
-        if (minOccludingDepth === Infinity) {
-            depth = (maxNonOccludingDepth === -Infinity) ? 0 : (maxNonOccludingDepth + 1);
-        } else if (maxNonOccludingDepth < minOccludingDepth) {
-            depth = (maxNonOccludingDepth + minOccludingDepth) / 2;
-        } else {
-            depth = minOccludingDepth - 1;
-        }
-        // Attempt clone but don't skip debug if it fails
+        if (minOccludingDepth === Infinity) depth = (maxNonOccludingDepth === -Infinity) ? 0 : (maxNonOccludingDepth + 1);
+        else if (maxNonOccludingDepth < minOccludingDepth) depth = (maxNonOccludingDepth + minOccludingDepth) / 2;
+        else depth = minOccludingDepth - 1;
         const clone = cloneTokenSprite(token);
         if (clone) {
             if (!tokenIsVisible) clone.visible = false;
@@ -353,77 +341,81 @@ function updateAlwaysVisibleElements() {
         }
         if (tokenIsVisible) tokenDepthMap.set(token.id, depth);
     }
+    return { tokenEntries, tokenDepthMap };
+}
 
-    // --- Token-to-token relative ordering refinement ---
-    // After establishing each token's base depth relative to tiles, refine their ordering among themselves
-    // using the same occlusion rule applied pairwise. We only add a tiny epsilon so we never cross tile bands.
-    if (tokenEntries.length > 1) {
-        // Sort tokens so that occluding tokens come later (higher depth) without violating existing large depth gaps.
-        tokenEntries.sort((a, b) => {
-            if (a === b) return 0;
-            const ax = a.token.document.x; const ay = a.token.document.y;
-            const bx = b.token.document.x; const by = b.token.document.y;
-            const aOccludesB = (ax <= bx) && (ay >= by);
-            const bOccludesA = (bx <= ax) && (by >= ay);
-            if (aOccludesB && !bOccludesA) return 1;  // a should be in front -> higher depth
-            if (bOccludesA && !aOccludesB) return -1; // b should be in front
-            // Fallback: keep original relative base depth ordering first
-            if (a.baseDepth !== b.baseDepth) return a.baseDepth - b.baseDepth;
-            // Then by y then x to stabilize
-            if (ay !== by) return ay - by; // smaller y (higher on screen) behind
-            return ax - bx; // smaller x behind
-        });
-        // Apply epsilon increments inside each token's depth without exceeding next tile boundary.
-        const EPS = 0.0001;
-        for (let i = 0; i < tokenEntries.length; i++) {
-            tokenEntries[i].depth = tokenEntries[i].baseDepth + (i * EPS);
-            // Update debug map value with refined depth
-            const id = tokenEntries[i].token.id;
-            if (tokenDepthMap.has(id)) tokenDepthMap.set(id, tokenEntries[i].depth);
-        }
+function refineTokenOrdering(tokenEntries, tokenDepthMap) {
+    if (tokenEntries.length <= 1) return;
+    tokenEntries.sort((a, b) => {
+        if (a === b) return 0;
+        const ax = a.token.document.x; const ay = a.token.document.y;
+        const bx = b.token.document.x; const by = b.token.document.y;
+        const aOccludesB = (ax <= bx) && (ay >= by);
+        const bOccludesA = (bx <= ax) && (by >= ay);
+        if (aOccludesB && !bOccludesA) return 1;
+        if (bOccludesA && !aOccludesB) return -1;
+        if (a.baseDepth !== b.baseDepth) return a.baseDepth - b.baseDepth;
+        if (ay !== by) return ay - by;
+        return ax - bx;
+    });
+    const EPS = 0.0001;
+    for (let i = 0; i < tokenEntries.length; i++) {
+        tokenEntries[i].depth = tokenEntries[i].baseDepth + (i * EPS);
+        const id = tokenEntries[i].token.id;
+        if (tokenDepthMap.has(id)) tokenDepthMap.set(id, tokenEntries[i].depth);
     }
+}
 
+function renderForeground(foregroundTileEntries, tokenEntries) {
     const foregroundElements = [...foregroundTileEntries, ...tokenEntries];
     foregroundElements.sort((a,b)=> a.depth - b.depth);
     for (const element of foregroundElements) {
         element.sprite.zIndex = element.depth;
         foregroundContainer.addChild(element.sprite);
     }
+}
 
+function buildDebugPlan(foregroundTileEntries, backgroundTileDocs, tokenDepthMap) {
+    if (!DEBUG_PRINT) return;
+    try {
+        const plan = { debugTiles: [], debugTokens: [] };
+        for (const tileEntry of foregroundTileEntries) {
+            const tile = tileEntry.tile; if (!tile?.mesh) continue;
+            const { gx, gy } = getTileBottomCornerGridXY(tile);
+            const applied = Math.round(tileEntry.depth);
+            plan.debugTiles.push({ gx, gy, sort: applied, px: tile.document.x, py: tile.document.y + tile.document.height });
+        }
+        for (const tile of backgroundTileDocs) {
+            if (!tile?.mesh) continue;
+            const { gx, gy } = getTileBottomCornerGridXY(tile);
+            const applied = Number(tile.document.sort) || 0;
+            plan.debugTiles.push({ gx, gy, sort: applied, px: tile.document.x, py: tile.document.y + tile.document.height });
+        }
+        for (const token of canvas.tokens.placeables) {
+            if (!token || !token.visible) continue;
+            const { gx, gy } = getTokenGridXY(token);
+            const doc = token.document;
+            const w = (Number(doc.width) || 1) * (canvas.grid?.size || 1);
+            const h = (Number(doc.height) || 1) * (canvas.grid?.size || 1);
+            const px = Number(doc.x) + w * 0.5;
+            const py = Number(doc.y) + h;
+            const depth = tokenDepthMap.get(token.id);
+            if (depth !== undefined) plan.debugTokens.push({ gx, gy, sort: Math.round(depth), px, py });
+        }
+        addDebugOverlays(plan);
+    } catch (e) { if (DEBUG_PRINT) console.warn('addDebugOverlays failed', e); }
+}
+
+function updateAlwaysVisibleElements() {
+    if (!canvas.ready || !foregroundContainer) return;
+    foregroundContainer.removeChildren();
+    const { backgroundTileDocs, foregroundTileEntries } = collectTileEntries();
+    assignTileDepths(foregroundTileEntries);
+    const { tokenEntries, tokenDepthMap } = computeTokenEntries(foregroundTileEntries);
+    refineTokenOrdering(tokenEntries, tokenDepthMap);
+    renderForeground(foregroundTileEntries, tokenEntries);
     updateLayerOpacity(foregroundContainer);
-
-    if (DEBUG_PRINT) {
-        try {
-            const plan = { debugTiles: [], debugTokens: [] };
-            // Foreground tiles: use computed depth actually applied to zIndex, not raw document.sort
-            for (const tileEntry of foregroundTileEntries) {
-                const tile = tileEntry.tile; if (!tile?.mesh) continue;
-                const { gx, gy } = getTileBottomCornerGridXY(tile);
-                const applied = Math.round(tileEntry.depth); // final zIndex used
-                plan.debugTiles.push({ gx, gy, sort: applied, px: tile.document.x, py: tile.document.y + tile.document.height });
-            }
-            // Background tiles: use their document.sort directly
-            for (const tile of backgroundTileDocs) {
-                if (!tile?.mesh) continue;
-                const { gx, gy } = getTileBottomCornerGridXY(tile);
-                const applied = Number(tile.document.sort) || 0;
-                plan.debugTiles.push({ gx, gy, sort: applied, px: tile.document.x, py: tile.document.y + tile.document.height });
-            }
-            // Tokens: iterate all placeables so we still show debug even if clone failed
-            for (const token of canvas.tokens.placeables) {
-                if (!token || !token.visible) continue; // only label visible tokens
-                const { gx, gy } = getTokenGridXY(token);
-                const doc = token.document;
-                const w = (Number(doc.width) || 1) * (canvas.grid?.size || 1);
-                const h = (Number(doc.height) || 1) * (canvas.grid?.size || 1);
-                const px = Number(doc.x) + w * 0.5;
-                const py = Number(doc.y) + h;
-                const depth = tokenDepthMap.get(token.id);
-                if (depth !== undefined) plan.debugTokens.push({ gx, gy, sort: Math.round(depth), px, py });
-            }
-            addDebugOverlays(plan);
-        } catch (e) { if (DEBUG_PRINT) console.warn('addDebugOverlays failed', e); }
-    }
+    buildDebugPlan(foregroundTileEntries, backgroundTileDocs, tokenDepthMap);
 }
 
 // addDebugOverlays & ensureWallIdsArray moved to overlay.js and tile.js respectively
