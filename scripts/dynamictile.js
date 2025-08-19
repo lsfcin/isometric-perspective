@@ -224,25 +224,29 @@ function cloneTileSprite(tilePlaceable) {
 }
 
 function cloneTokenSprite(token) {
-    if (!token || !token.texture) {
-        if (DEBUG_PRINT) console.warn('Dynamic Tile cloneTokenSprite() common error.');
-        return null;
-    }
     try {
-        const sprite = new PIXI.Sprite(token.texture);
-        sprite.position.set(token.position.x, token.position.y);
-        sprite.anchor.set(token.anchor.x, token.anchor.y);
-        sprite.angle = token.angle;
-        sprite.scale.set(token.scale.x, token.scale.y);
-    const tokenAlpha = typeof token.alpha === 'number' ? token.alpha : 1;
-    sprite.baseAlpha = tokenAlpha;
-    sprite.alpha = tokenAlpha * tokensOpacity;
-    sprite.opacityGroup = 'tokens';
+        const mesh = token?.mesh;
+        if (!mesh || !mesh.texture) {
+            if (DEBUG_PRINT) console.warn('cloneTokenSprite: token mesh/texture missing', token?.id);
+            return null;
+        }
+        const sprite = new PIXI.Sprite(mesh.texture);
+        // replicate transforms
+        sprite.position.set(mesh.position.x, mesh.position.y);
+        sprite.anchor.set(mesh.anchor?.x ?? 0.5, mesh.anchor?.y ?? 0.5);
+        sprite.angle = mesh.angle ?? token.angle ?? 0;
+        try { sprite.rotation = mesh.rotation; if (mesh.skew) sprite.skew.set(mesh.skew.x, mesh.skew.y); } catch {}
+        try { sprite.scale.set(mesh.scale.x, mesh.scale.y); } catch { sprite.scale.set(1, 1); }
+        const tokenAlpha = typeof token.alpha === 'number' ? token.alpha : 1;
+        sprite.baseAlpha = tokenAlpha;
+        sprite.alpha = tokenAlpha * tokensOpacity;
+        sprite.opacityGroup = 'tokens';
         sprite.eventMode = 'passive';
         sprite.originalToken = token;
+        try { token.mesh.alpha = 0; } catch {}
         return sprite;
-    } catch (error) {
-        console.error('Error cloning token sprite:', error);
+    } catch (e) {
+        if (DEBUG_PRINT) console.warn('cloneTokenSprite failed', e);
         return null;
     }
 }
@@ -321,9 +325,9 @@ function updateAlwaysVisibleElements() {
             depth = minOccludingDepth - 1;
         }
         // Attempt clone but don't skip debug if it fails
-        const clone = cloneTokenSprite(token);
-        if (clone) tokenEntries.push({ depth, sprite: clone, token });
-        tokenDepthMap.set(token.id, depth);
+    const clone = cloneTokenSprite(token);
+    if (clone) tokenEntries.push({ depth, sprite: clone, token });
+    tokenDepthMap.set(token.id, depth);
     }
 
     const combined = [...foregroundTileEntries, ...tokenEntries];
@@ -361,7 +365,7 @@ function updateAlwaysVisibleElements() {
                 const w = (Number(doc.width) || 1) * (canvas.grid?.size || 1);
                 const h = (Number(doc.height) || 1) * (canvas.grid?.size || 1);
                 const px = Number(doc.x) + w * 0.5;
-                const py = Number(doc.y) + h; // bottom
+                const py = Number(doc.y) + h;
                 const depth = tokenDepthMap.get(token.id);
                 if (depth !== undefined) plan.debugTokens.push({ gx, gy, sort: Math.round(depth), px, py });
             }
