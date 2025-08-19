@@ -1,12 +1,18 @@
 // Use MODULE_ID string literal to avoid circular import with main.js for wall highlighting
 const MODULE_ID = 'isometric-perspective';
 let hoverLayer = null;
+let debugLayer = null; // separate layer for debug coordinate text
 
 function bringOverlayToTop() {
   try {
+    // Maintain relative order: background stuff < debugLayer < hoverLayer (hover always on top)
+    if (debugLayer?.parent === canvas.stage) {
+      canvas.stage.removeChild(debugLayer);
+      canvas.stage.addChild(debugLayer);
+    }
     if (hoverLayer?.parent === canvas.stage) {
       canvas.stage.removeChild(hoverLayer);
-      canvas.stage.addChild(hoverLayer);
+      canvas.stage.addChild(hoverLayer); // hover above debug
     }
   } catch {}
 }
@@ -23,6 +29,12 @@ export function registerOverlayHooks() {
       hoverLayer.name = 'HoverHighlightLayer';
       hoverLayer.eventMode = 'passive';
       canvas.stage.addChild(hoverLayer);
+  // Debug layer just below hover overlays so selection rectangles remain on top
+  if (debugLayer) { try { canvas.stage.removeChild(debugLayer); debugLayer.destroy({ children: true }); } catch {} }
+  debugLayer = new PIXI.Container();
+  debugLayer.name = 'IsoDebugOverlay';
+  debugLayer.eventMode = 'passive';
+  canvas.stage.addChild(debugLayer);
   // Keep overlay as the top-most layer
   bringOverlayToTop();
     } catch {}
@@ -33,6 +45,11 @@ export function registerOverlayHooks() {
         canvas.stage.removeChild(hoverLayer);
         hoverLayer.destroy({ children: true });
         hoverLayer = null;
+      }
+      if (debugLayer) {
+        canvas.stage.removeChild(debugLayer);
+        debugLayer.destroy({ children: true });
+        debugLayer = null;
       }
     } catch {}
   });
@@ -45,24 +62,22 @@ export function registerOverlayHooks() {
   Hooks.on('updateScene', bringOverlayToTop);
   Hooks.on('preUpdateScene', bringOverlayToTop);
 
-  // Token hover circle overlay
+  // Re-raise debug layer too
+  Hooks.on('isometricOverlayBringToTop', () => {
+    try { if (debugLayer && debugLayer.parent === canvas.stage) { canvas.stage.removeChild(debugLayer); canvas.stage.addChild(debugLayer); } } catch {}
+  });
+
+  // Token hover grid highlight (replaces previous purple circle)
   Hooks.on('hoverToken', (token, hovered) => {
     try {
-      if (hovered) drawHoverOutline(token);
-      else clearHoverOutline(token);
-    } catch {}
-    bringOverlayToTop();
-  });
-  Hooks.on('refreshToken', (token) => {
-    try { if (token) updateHoverOutlinePosition(token); } catch {}
-    bringOverlayToTop();
-  });
-  Hooks.on('updateToken', (tokenDocument) => {
-    try {
-      const tok = canvas.tokens.get(tokenDocument.id);
-      if (tok) updateHoverOutlinePosition(tok);
+      if (hovered) drawTokenGridHighlight(token); else clearTokenGridHighlight(token);
       bringOverlayToTop();
     } catch {}
+  });
+  Hooks.on('refreshToken', (token) => { try { if (token?.hover) updateTokenGridHighlight(token); } catch {} bringOverlayToTop(); });
+  Hooks.on('updateToken', (tokenDocument) => {
+    try { const token = canvas.tokens.get(tokenDocument.id); if (token?.hover) updateTokenGridHighlight(token); } catch {}
+    bringOverlayToTop();
   });
 
   // Allow other modules of this package to request re-raising the overlay
@@ -151,48 +166,46 @@ function getTokenOwnerColorNumber(token, fallback = 0x9b59b6) {
   return fallback;
 }
 
-function drawHoverOutline(token) {
+// drawHoverOutline / clearHoverOutline / updateHoverOutlinePosition removed
+// ---- Token Grid Highlight ----
+function drawTokenGridHighlight(token) {
+  if (!hoverLayer || !token) return;
+  const name = `TokenGridHover-${token.id}`;
+  const existing = hoverLayer.getChildByName(name);
+  if (existing) hoverLayer.removeChild(existing);
+  const g = new PIXI.Graphics();
+  g.name = name;
+  g.eventMode = 'passive';
+  g.zIndex = 9_999_997;
   try {
-    if (!hoverLayer || !token) return;
-    const name = `HoverOutline-${token.id}`;
-    const existing = hoverLayer.getChildByName(name);
-    if (existing) hoverLayer.removeChild(existing);
-
-    const grid = canvas.grid?.size || 100;
+    const grid = canvas.grid?.size || canvas.dimensions.size || 100;
+    // token.document.width/height in grid units; fallback to 1
     const wUnits = Math.max(1, Number(token.document?.width) || 1);
     const hUnits = Math.max(1, Number(token.document?.height) || 1);
-    const radius = (grid * (wUnits + hUnits) / 2) * 0.45;
-
-    const g = new PIXI.Graphics();
-    g.name = name;
-    g.eventMode = 'passive';
-    g.zIndex = 10_000_000;
-    const col = getTokenOwnerColorNumber(token);
-    g.lineStyle(4, 0x000000, 0.4);
-    g.drawCircle(0, 0, radius);
-    g.lineStyle(2, col, 1.0);
-    g.drawCircle(0, 0, radius);
-    g.position.set(token.center.x, token.center.y);
-
-    hoverLayer.addChild(g);
-  bringOverlayToTop();
-  } catch (e) {
-    console.error('Hover outline error:', e);
-  }
+    const pxW = wUnits * grid;
+    const pxH = hUnits * grid;
+    const x = Number(token.document?.x ?? token.x ?? token.position?.x) || 0;
+    const y = Number(token.document?.y ?? token.y ?? token.position?.y) || 0;
+    const baseColor = getTokenOwnerColorNumber ? getTokenOwnerColorNumber(token, 0xffa500) : 0xffa500;
+  const outline = baseColor;
+  // Outer dark stroke for contrast then colored stroke (no fill)
+  g.lineStyle(4, 0x000000, 0.35);
+  g.drawRect(x, y, pxW, pxH);
+  g.lineStyle(2, outline, 0.95);
+  g.drawRect(x, y, pxW, pxH);
+  } catch (e) { console.warn('drawTokenGridHighlight failed', e); }
+  hoverLayer.addChild(g);
 }
 
-function clearHoverOutline(token) {
+function clearTokenGridHighlight(token) {
   if (!hoverLayer || !token) return;
-  const name = `HoverOutline-${token.id}`;
+  const name = `TokenGridHover-${token.id}`;
   const existing = hoverLayer.getChildByName(name);
   if (existing) hoverLayer.removeChild(existing);
 }
 
-function updateHoverOutlinePosition(token) {
-  if (!hoverLayer || !token) return;
-  const name = `HoverOutline-${token.id}`;
-  const existing = hoverLayer.getChildByName(name);
-  if (existing) existing.position.set(token.center.x, token.center.y);
+function updateTokenGridHighlight(token) {
+  drawTokenGridHighlight(token);
 }
 
 function drawTileSelectionOverlay(tile) {
@@ -326,6 +339,40 @@ function clearLinkedWallsOverlay(tile) {
   if (!hoverLayer || !tile) return;
   const ex = hoverLayer.getChildByName(`TileWalls-${tile.id}`);
   if (ex) hoverLayer.removeChild(ex);
+}
+
+// ---- Debug coordinate overlay (moved from dynamictile.js) ----
+export function addDebugOverlays(plan) {
+  try {
+    if (!debugLayer) {
+      // Late creation fallback if canvasInit order differed
+      debugLayer = new PIXI.Container();
+      debugLayer.name = 'IsoDebugOverlay';
+      debugLayer.eventMode = 'passive';
+      canvas.stage.addChild(debugLayer);
+    }
+    debugLayer.visible = true;
+    debugLayer.removeChildren();
+    const tileStyle = new PIXI.TextStyle({ fontSize: 12, fill: '#00ffff', stroke: '#000000', strokeThickness: 3 });
+    const tokenStyle = new PIXI.TextStyle({ fontSize: 12, fill: '#ffff00', stroke: '#000000', strokeThickness: 3 });
+    for (const t of (plan?.debugTiles || [])) {
+      const txt = new PIXI.Text(`T(${t.gx},${t.gy})`, tileStyle);
+      txt.anchor.set(0.5, 1);
+      txt.position.set(t.px, t.py - 4);
+      txt.zIndex = (t.gx ?? 0) + (t.gy ?? 0);
+      txt.eventMode = 'passive';
+      debugLayer.addChild(txt);
+    }
+    for (const k of (plan?.debugTokens || [])) {
+      const txt = new PIXI.Text(`K(${k.gx},${k.gy})`, tokenStyle);
+      txt.anchor.set(0.5, 1);
+      txt.position.set(k.px, k.py - 16);
+      txt.zIndex = (k.gx ?? 0) + (k.gy ?? 0);
+      txt.eventMode = 'passive';
+      debugLayer.addChild(txt);
+    }
+    bringOverlayToTop();
+  } catch (e) { console.warn('addDebugOverlays failed', e); }
 }
 
 // Redraw when walls change

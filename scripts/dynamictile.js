@@ -1,11 +1,14 @@
 import { MODULE_ID, DEBUG_PRINT, FOUNDRY_VERSION } from './main.js';
+import { ensureWallIdsArray } from './tile.js';
+import { addDebugOverlays } from './overlay.js';
 
-// Module state
-let alwaysVisibleContainer;
-let tilesLayer;
-let tokensLayer;
+// Module state (refactored two-layer system)
+let backgroundContainer;   // cloned background tiles (rendered below tokens)
+let foregroundContainer;   // cloned foreground tiles (rendered above tokens)
+let tilesLayer;            // alias kept for opacity helpers (points to foregroundContainer)
+let tokensLayer;           // legacy dummy (kept so helpers referencing it do not break)
 let tilesOpacity = 1.0;
-let tokensOpacity = 1.0;
+let tokensOpacity = 1.0; // retained for backward compatibility with existing opacity UI (no functional change now)
 let lastControlledToken = null;
 
 function clamp01(n) {
@@ -15,61 +18,108 @@ function clamp01(n) {
 }
 
 export function registerDynamicTileConfig() {
-    const enableOcclusionDynamicTile = game.settings.get(MODULE_ID, 'enableOcclusionDynamicTile');
-    const worldIsometricFlag = game.settings.get(MODULE_ID, 'worldIsometricFlag');
+    if (!shouldEnableDynamicTiles()) return;
+    registerLifecycleHooks();
+    registerTileHooks();
+    registerTokenHooks();
+    registerMiscHooks();
+}
 
-    // From here on, only run the full dynamic tiles system if enabled
-    if (!worldIsometricFlag || !enableOcclusionDynamicTile) return;
+function shouldEnableDynamicTiles() {
+    try {
+        const enable = game.settings.get(MODULE_ID, 'enableOcclusionDynamicTile');
+        const worldIso = game.settings.get(MODULE_ID, 'worldIsometricFlag');
+        return !!(enable && worldIso);
+    } catch { return false; }
+}
 
-    // Canvas lifecycle
-    Hooks.on('canvasInit', () => {
-        if (alwaysVisibleContainer) {
-            canvas.stage.removeChild(alwaysVisibleContainer);
-            alwaysVisibleContainer.destroy({ children: true });
-        }
-
-        alwaysVisibleContainer = new PIXI.Container();
-        alwaysVisibleContainer.name = 'AlwaysVisibleContainer';
-        alwaysVisibleContainer.eventMode = 'passive';
-
-        tilesLayer = new PIXI.Container();
-        tilesLayer.name = 'AlwaysVisibleTiles';
-
-        tokensLayer = new PIXI.Container();
-        tokensLayer.name = 'AlwaysVisibleTokens';
-
-        alwaysVisibleContainer.addChild(tilesLayer);
-        alwaysVisibleContainer.addChild(tokensLayer);
-
-        canvas.stage.addChild(alwaysVisibleContainer);
-    // Ensure correct layering order for the always visible container
-    canvas.stage.sortChildren();
-    });
-
-    Hooks.on('changeScene', () => {
-        if (!alwaysVisibleContainer) return;
-        canvas.stage.removeChild(alwaysVisibleContainer);
-        alwaysVisibleContainer.destroy({ children: true });
-        alwaysVisibleContainer = null;
-        tilesLayer = null;
-        tokensLayer = null;
-    // Hover layer is now managed by overlay.js
-    });
-
-    // Refresh triggers
+function registerLifecycleHooks() {
+    Hooks.on('canvasInit', setupContainers);
+    Hooks.on('changeScene', teardownContainers);
     Hooks.on('canvasReady', () => updateAlwaysVisibleElements());
-    Hooks.on('canvasTokensRefresh', () => updateAlwaysVisibleElements());
-    Hooks.on('updateUser', (user, changes) => {
-        if (user.id === game.user.id && 'character' in changes) updateAlwaysVisibleElements();
-    });
+    Hooks.once('canvasReady', migrateLegacyIsoLayerFlags);
+}
 
-    // Tile hooks (flags maintenance + re-render)
-    Hooks.on('createTile', (tile) => {
-        tile.setFlag(MODULE_ID, 'linkedWallIds', []);
-        // Default occlusion overlay alpha to 1 (no extra dimming)
-        try { tile.setFlag(MODULE_ID, 'OcclusionAlpha', 1); } catch {}
-    });
-    Hooks.on('updateTile', async (tileDocument, change) => {
+function registerTileHooks() {
+    Hooks.on('createTile', initializeNewTileFlags);
+    Hooks.on('updateTile', handleTileUpdate);
+    Hooks.on('refreshTile', () => updateAlwaysVisibleElements());
+    Hooks.on('deleteTile', () => updateAlwaysVisibleElements());
+}
+
+function registerTokenHooks() {
+    Hooks.on('createToken', () => setTimeout(() => updateAlwaysVisibleElements(), 100));
+    Hooks.on('controlToken', handleControlToken);
+    Hooks.on('updateToken', handleUpdateToken);
+    Hooks.on('deleteToken', handleDeleteToken);
+    Hooks.on('refreshToken', () => updateAlwaysVisibleElements());
+    Hooks.on('canvasTokensRefresh', () => updateAlwaysVisibleElements());
+    Hooks.on('updateUser', (user, changes) => { if (user.id === game.user.id && 'character' in changes) updateAlwaysVisibleElements(); });
+}
+
+function registerMiscHooks() {
+    Hooks.on('sightRefresh', () => { if (canvas.ready) updateAlwaysVisibleElements(); });
+    Hooks.on('updateWall', handleUpdateWallDoorState);
+}
+
+// ---- Hook handlers ----
+function setupContainers() {
+    for (const c of [backgroundContainer, foregroundContainer]) {
+        try { if (c?.parent) c.parent.removeChild(c); c?.destroy({ children: true }); } catch {}
+    }
+    backgroundContainer = new PIXI.Container();
+    backgroundContainer.name = 'IsoBackgroundTiles';
+    backgroundContainer.sortableChildren = true;
+    backgroundContainer.eventMode = 'passive';
+
+    foregroundContainer = new PIXI.Container();
+    foregroundContainer.name = 'IsoForegroundTiles';
+    foregroundContainer.sortableChildren = true;
+    foregroundContainer.eventMode = 'passive';
+
+    tilesLayer = foregroundContainer;
+    tokensLayer = new PIXI.Container();
+    tokensLayer.name = 'IsoLegacyTokensLayer';
+    tokensLayer.visible = false;
+
+    try {
+        const idx = canvas.stage.getChildIndex(canvas.tokens);
+        canvas.stage.addChildAt(backgroundContainer, idx);
+    } catch { canvas.stage.addChild(backgroundContainer); }
+    canvas.stage.addChild(foregroundContainer);
+    canvas.stage.addChild(tokensLayer);
+}
+
+function teardownContainers() {
+    for (const c of [backgroundContainer, foregroundContainer, tokensLayer]) {
+        try { if (c?.parent) c.parent.removeChild(c); c?.destroy({ children: true }); } catch {}
+    }
+    backgroundContainer = foregroundContainer = tilesLayer = tokensLayer = null;
+}
+
+function migrateLegacyIsoLayerFlags() {
+    try {
+        const updates = [];
+        for (const t of canvas.tiles.placeables) {
+            const doc = t.document;
+            const hasIso = doc.getFlag(MODULE_ID, 'isoLayer');
+            if (hasIso) continue;
+            const legacy = doc.getFlag(MODULE_ID, 'OccludingTile');
+            const layer = legacy ? 'foreground' : 'background';
+            updates.push({ _id: doc.id, [`flags.${MODULE_ID}.isoLayer`]: layer });
+        }
+        if (updates.length) canvas.scene.updateEmbeddedDocuments('Tile', updates);
+    } catch (e) { if (DEBUG_PRINT) console.warn('Iso layer migration failed', e); }
+}
+
+function initializeNewTileFlags(tile) {
+    try { if (!tile.getFlag(MODULE_ID, 'isoLayer')) tile.setFlag(MODULE_ID, 'isoLayer', 'foreground'); } catch {}
+    try { tile.setFlag(MODULE_ID, 'linkedWallIds', []); } catch {}
+    try { tile.setFlag(MODULE_ID, 'OcclusionAlpha', 1); } catch {}
+}
+
+async function handleTileUpdate(tileDocument, change) {
+    try {
         if ('flags' in change && MODULE_ID in change.flags) {
             const currentFlags = change.flags[MODULE_ID] ?? {};
             if ('linkedWallIds' in currentFlags) {
@@ -80,98 +130,39 @@ export function registerDynamicTileConfig() {
                 const v = clamp01(currentFlags.OcclusionAlpha);
                 await tileDocument.setFlag(MODULE_ID, 'OcclusionAlpha', v);
             }
-        }
-        updateAlwaysVisibleElements();
-    });
-    Hooks.on('refreshTile', () => updateAlwaysVisibleElements());
-    Hooks.on('deleteTile', () => updateAlwaysVisibleElements());
-    // Note: updateTile above already triggers refresh; avoid duplicate registration
-
-    // Token hooks (re-render on token changes)
-    Hooks.on('createToken', () => setTimeout(() => updateAlwaysVisibleElements(), 100));
-    Hooks.on('controlToken', (token, controlled) => {
-        if (controlled) lastControlledToken = token;
-        updateAlwaysVisibleElements();
-    });
-    Hooks.on('updateToken', (tokenDocument) => {
-        if (lastControlledToken && tokenDocument.id === lastControlledToken.id) {
-            lastControlledToken = canvas.tokens.get(tokenDocument.id);
-        }
-        updateAlwaysVisibleElements();
-    });
-    Hooks.on('deleteToken', (token) => {
-        if (lastControlledToken && token.id === lastControlledToken.id) lastControlledToken = null;
-        updateAlwaysVisibleElements();
-    });
-    Hooks.on('refreshToken', (token) => {
-        updateAlwaysVisibleElements();
-    });
-    // No drag/preview interception logic here; this module focuses on occlusion only.
-
-    // Tile selection/hover overlays have been moved to overlay.js
-
-    // Other hooks
-    Hooks.on('sightRefresh', () => {
-        if (canvas.ready && alwaysVisibleContainer) updateAlwaysVisibleElements();
-    });
-    Hooks.on('updateWall', (wallDocument, change) => {
-        if (!('ds' in change)) return; // door state change only
-        const linkedTiles = canvas.tiles.placeables.filter(tile => {
-            const walls = getLinkedWalls(tile);
-            return walls.some(w => w && w.id === wallDocument.id);
-        });
-        if (linkedTiles.length) updateAlwaysVisibleElements();
-    });
-
-    // UI buttons on Tiles controls
-    Hooks.on('getSceneControlButtons', (controls) => {
-        const tilesCtl = controls.find(b => b.name === 'tiles');
-        if (!tilesCtl) return;
-        // Insert our tools in a specific order so new ordering buttons appear just below
-        // existing snapping / opacity increase controls ("dynamic-tile-increase" first).
-        tilesCtl.tools.push(
-            {
-                name: 'tile-bring-front',
-                title: 'Bring Selected Tiles to Front',
-                icon: 'fa-solid fa-arrow-up-wide-short',
-                active: true,
-                onClick: () => bringSelectedTilesToFront(),
-                button: true
-            },
-            {
-                name: 'tile-send-back',
-                title: 'Send Selected Tiles to Back',
-                icon: 'fa-solid fa-arrow-down-short-wide',
-                active: true,
-                onClick: () => sendSelectedTilesToBack(),
-                button: true
-            },
-            {
-                name: 'dynamic-tile-increase',
-                title: 'Increase Dynamic Tile Opacity',
-                icon: 'fa-solid fa-layer-group',
-                active: true,
-                onClick: () => increaseTilesOpacity(),
-                button: true
-            },
-            {
-                name: 'dynamic-tile-decrease',
-                title: 'Decrease Dynamic Tile Opacity',
-                icon: 'fa-duotone fa-solid fa-layer-group',
-                active: true,
-                onClick: () => decreaseTilesOpacity(),
-                button: true
-            },
-            {
-                name: 'dynamic-tile-flip',
-                title: 'Flip Selected Tiles',
-                icon: 'fa-solid fa-arrows-left-right',
-                active: true,
-                onClick: () => flipSelectedTiles(),
-                button: true
+            if ('isoLayer' in currentFlags) {
+                const v = currentFlags.isoLayer === 'background' ? 'background' : 'foreground';
+                await tileDocument.setFlag(MODULE_ID, 'isoLayer', v);
             }
-        );
+        }
+    } catch {}
+    updateAlwaysVisibleElements();
+}
+
+function handleControlToken(token, controlled) {
+    if (controlled) lastControlledToken = token;
+    updateAlwaysVisibleElements();
+}
+
+function handleUpdateToken(tokenDocument) {
+    if (lastControlledToken && tokenDocument.id === lastControlledToken.id) {
+        lastControlledToken = canvas.tokens.get(tokenDocument.id);
+    }
+    updateAlwaysVisibleElements();
+}
+
+function handleDeleteToken(token) {
+    if (lastControlledToken && token.id === lastControlledToken.id) lastControlledToken = null;
+    updateAlwaysVisibleElements();
+}
+
+function handleUpdateWallDoorState(wallDocument, change) {
+    if (!('ds' in change)) return; // door state change only
+    const linkedTiles = canvas.tiles.placeables.filter(tile => {
+        const walls = getLinkedWalls(tile);
+        return walls.some(w => w && w.id === wallDocument.id);
     });
+    if (linkedTiles.length) updateAlwaysVisibleElements();
 }
 
 function updateLayerOpacity(layer, opacity) {
@@ -208,64 +199,6 @@ async function adjustSelectedTilesOcclusionAlpha(delta = 0.1) {
 export function increaseTilesOpacity() { adjustSelectedTilesOcclusionAlpha(+0.1); }
 export function decreaseTilesOpacity() { adjustSelectedTilesOcclusionAlpha(-0.1); }
 
-// Bring selected tiles to front/back by manipulating their TileDocument.sort values.
-async function bringSelectedTilesToFront() {
-    try {
-        const selected = Array.from(canvas.tiles?.controlled || []);
-        if (!selected.length) return;
-        const allSorts = canvas.tiles.placeables.map(t => typeof t.document?.sort === 'number' ? t.document.sort : 0);
-        const maxSort = allSorts.length ? Math.max(...allSorts) : 0;
-        // Preserve current relative order by sorting by existing sort ascending
-        const ordered = selected.sort((a, b) => (a.document.sort || 0) - (b.document.sort || 0));
-        let next = maxSort + 1;
-        const updates = ordered.map(t => ({ _id: t.document.id, sort: next++ }));
-        await canvas.scene.updateEmbeddedDocuments('Tile', updates);
-    } catch (e) { if (DEBUG_PRINT) console.warn('bringSelectedTilesToFront failed', e); }
-}
-
-async function sendSelectedTilesToBack() {
-    try {
-        const selected = Array.from(canvas.tiles?.controlled || []);
-        if (!selected.length) return;
-        const allSorts = canvas.tiles.placeables.map(t => typeof t.document?.sort === 'number' ? t.document.sort : 0);
-        const minSort = allSorts.length ? Math.min(...allSorts) : 0;
-        // Sort ascending so top-most stays top-most among the moved group (while all move below others)
-        const ordered = selected.sort((a, b) => (a.document.sort || 0) - (b.document.sort || 0));
-        // Assign new sorts strictly below current minimum, preserving relative order
-        let start = minSort - ordered.length;
-        const updates = ordered.map(t => ({ _id: t.document.id, sort: start++ }));
-        await canvas.scene.updateEmbeddedDocuments('Tile', updates);
-    } catch (e) { if (DEBUG_PRINT) console.warn('sendSelectedTilesToBack failed', e); }
-}
-
-// Flip selected tiles around their bottom-left by swapping width/height, keeping bottom edge fixed,
-// toggling the tokenFlipped flag, and inverting offsetY to match the Tile Config behavior.
-async function flipSelectedTiles() {
-    try {
-        const selected = Array.from(canvas.tiles?.controlled || []);
-        if (!selected.length) return;
-        const updates = [];
-        for (const t of selected) {
-            const doc = t.document;
-            const w = Number(doc.width) || 0;
-            const h = Number(doc.height) || 0;
-            const yVal = Number(doc.y) || 0;
-            const curOffY = Number(doc.getFlag(MODULE_ID, 'offsetY')) || 0;
-            const flipped = !!doc.getFlag(MODULE_ID, 'tokenFlipped');
-            const newY = yVal + (h - w);
-            updates.push({
-                _id: doc.id,
-                width: h,
-                height: w,
-                y: newY,
-                [`flags.${MODULE_ID}.tokenFlipped`]: !flipped,
-                [`flags.${MODULE_ID}.offsetY`]: -curOffY
-            });
-        }
-        if (updates.length) await canvas.scene.updateEmbeddedDocuments('Tile', updates);
-    } catch (e) { if (DEBUG_PRINT) console.warn('flipSelectedTiles failed', e); }
-}
-
 export function resetOpacity() {
     tilesOpacity = 1.0;
     updateTilesOpacity(tilesOpacity);
@@ -279,27 +212,19 @@ export function updateTokensOpacity(value) {
 export function increaseTokensOpacity() { updateTokensOpacity(tokensOpacity + 0.1); }
 export function decreaseTokensOpacity() { updateTokensOpacity(tokensOpacity - 0.1); }
 
-function cloneTileSprite(tilePlaceable, walls, asOccluder = false) {
+function cloneTileSprite(tilePlaceable) {
     const mesh = tilePlaceable?.mesh;
     if (!mesh) return null;
     const sprite = new PIXI.Sprite(mesh.texture);
     sprite.position.set(mesh.position.x, mesh.position.y);
     sprite.anchor.set(mesh.anchor.x, mesh.anchor.y);
-    // Match original mesh transforms so appearance never changes when toggling occlusion
     sprite.angle = mesh.angle;
-    try {
-        sprite.rotation = mesh.rotation;
-        if (mesh.skew) sprite.skew.set(mesh.skew.x, mesh.skew.y);
-    } catch {}
-    // Match the original mesh scale exactly for identical appearance
+    try { sprite.rotation = mesh.rotation; if (mesh.skew) sprite.skew.set(mesh.skew.x, mesh.skew.y); } catch {}
     try { sprite.scale.set(mesh.scale.x, mesh.scale.y); } catch { sprite.scale.set(1, 1); }
-    // Base alpha uses the document alpha; when asOccluder, multiply by OcclusionAlpha
     const tileDocAlpha = typeof tilePlaceable?.document?.alpha === 'number' ? tilePlaceable.document.alpha : 1;
-    const occAlpha = asOccluder ? clamp01(tilePlaceable?.document?.getFlag(MODULE_ID, 'OcclusionAlpha') ?? 1) : 1;
-    const base = tileDocAlpha * occAlpha;
-    sprite.baseAlpha = base;
-    sprite.alpha = base * tilesOpacity;
-        sprite.opacityGroup = 'tiles';
+    sprite.baseAlpha = tileDocAlpha;
+    sprite.alpha = tileDocAlpha * tilesOpacity;
+    sprite.opacityGroup = 'tiles';
     sprite.eventMode = 'passive';
     sprite.originalTile = tilePlaceable;
     return sprite;
@@ -344,228 +269,64 @@ function getInitialToken() {
 }
 
 function updateAlwaysVisibleElements() {
-    if (!canvas.ready || !alwaysVisibleContainer) return;
-    tilesLayer.removeChildren();
-    tokensLayer.removeChildren();
+    if (!canvas.ready || !backgroundContainer || !foregroundContainer) return;
+    backgroundContainer.removeChildren();
+    foregroundContainer.removeChildren();
 
-    const controlled = getInitialToken();
-    if (!controlled) return;
-
-    const plan = computeVisibilityDrawPlan(controlled);
-    // Keep the always-visible container near the top so clones are not buried under the grid
-    try {
-        if (alwaysVisibleContainer?.parent === canvas.stage) {
-            canvas.stage.removeChild(alwaysVisibleContainer);
-            canvas.stage.addChild(alwaysVisibleContainer);
-            // Signal overlay to raise itself above tiles
-            Hooks.callAll('isometricOverlayBringToTop');
-        }
-    } catch {}
-
-    for (const t of plan.tiles) {
-        if (!t?.sprite) continue;
-        tilesLayer.addChild(t.sprite);
+    const bg = [];
+    const fg = [];
+    for (const tile of canvas.tiles.placeables) {
+        if (!tile?.mesh) continue;
+        let layer = tile.document.getFlag(MODULE_ID, 'isoLayer');
+        if (layer !== 'background' && layer !== 'foreground') layer = 'foreground';
+        const clone = cloneTileSprite(tile);
+        if (!clone) continue;
+        // Always hide original mesh so only clones render (avoids mixed ordering issues)
+        try { tile.mesh.alpha = 0; } catch {}
+        const sort = Number(tile.document.sort) || 0;
+        if (layer === 'background') bg.push({ sort, sprite: clone }); else fg.push({ sort, sprite: clone });
     }
-    for (const tk of plan.tokens) {
-        if (!tk?.sprite) continue;
-        if (typeof tk.z === 'number') tk.sprite.zIndex = tk.z;
-        tokensLayer.addChild(tk.sprite);
-    }
-    for (const oc of plan.occluders) {
-        if (!oc?.sprite) continue;
-        if (typeof oc.z === 'number') oc.sprite.zIndex = oc.z;
-        tokensLayer.addChild(oc.sprite);
-    }
+    bg.sort((a,b)=> a.sort - b.sort);
+    fg.sort((a,b)=> a.sort - b.sort);
+    for (const e of bg) backgroundContainer.addChild(e.sprite);
+    for (const e of fg) foregroundContainer.addChild(e.sprite);
 
-    // No drag/selection-specific mesh manipulation; occlusion plan controls hiding.
+    updateLayerOpacity(backgroundContainer, tilesOpacity);
+    updateLayerOpacity(foregroundContainer, tilesOpacity);
 
-    // Hide/show original occluding tiles: originals are hidden when represented by clones
-    try {
-        const hideSet = new Set(plan.hideOriginalTileIds || []);
-        for (const tile of canvas.tiles.placeables) {
-            if (!tile?.mesh) continue;
-            const isOccluding = !!tile.document?.getFlag(MODULE_ID, 'OccludingTile');
-            if (!isOccluding) continue;
-            if (hideSet.has(tile.id)) {
-                tile.mesh.alpha = 0; // fully hidden on base canvas
-            } else {
-                const baseAlpha = typeof tile.document?.alpha === 'number' ? tile.document.alpha : 1;
-                tile.mesh.alpha = baseAlpha;
-            }
-        }
-    } catch {}
-
-    // Debug overlays (coordinates), added last so they render on top
-    addDebugOverlays(plan);
-
-        updateLayerOpacity(tilesLayer, tilesOpacity);
-        updateLayerOpacity(tokensLayer, tokensOpacity);
-    // Ensure tiles use insertion order only (no zIndex sorting)
-    tilesLayer.sortableChildren = false;
-    tokensLayer.sortableChildren = true;
-    // Overlay layer (if any) is managed separately by overlay.js
-}
-
-function computeVisibilityDrawPlan(controlledToken) {
-    const plan = { tiles: [], tokens: [], occluders: [], debugTiles: [], debugTokens: [], hideOriginalTileIds: [] };
-
-        // Tiles that participate in grid occlusion are those with the 'Occluding Tokens' flag
-        const occlusionTilesByFlag = canvas.tiles.placeables.filter(tile => {
-            return !!tile?.document?.getFlag(MODULE_ID, 'OccludingTile');
-        });
-
-    // Manual ordering only: respect TileDocument.sort; ignore elevation or any dynamic sort
-        const tilesSorted = [...occlusionTilesByFlag].sort((a, b) => {
-        const sa = typeof a.document?.sort === 'number' ? a.document.sort : 0;
-        const sb = typeof b.document?.sort === 'number' ? b.document.sort : 0;
-        if (sa !== sb) return sa - sb;
-        const ida = String(a.document?.id || '');
-        const idb = String(b.document?.id || '');
-        return ida.localeCompare(idb);
-    });
-
-    // Prepare tiles and collect grid corners
-    const tileEntries = [];
-    for (const tile of tilesSorted) {
-        const walls = getLinkedWalls(tile);
-        // If any linked door is open, hide this tile entirely (original + clones)
-        const anyDoorOpen = Array.isArray(walls) && walls.some(w => (w?.document?.door === 1 || w?.document?.door === 2) && w?.document?.ds === 1);
-        if (anyDoorOpen) {
-            plan.hideOriginalTileIds.push(tile.id);
-            // Do not add any clones; tile becomes fully invisible
-            continue;
-        }
-        // Hide the original occluding tile mesh; we will represent via clones
-        plan.hideOriginalTileIds.push(tile.id);
-        const { gx: tgx, gy: tgy } = getTileBottomCornerGridXY(tile);
-        // Collect debug info for tile bottom-corner grid coords
-        plan.debugTiles.push({ gx: tgx, gy: tgy, px: tile.document.x, py: tile.document.y + tile.document.height });
-        tileEntries.push({ tile, walls, gx: tgx, gy: tgy, depth: tgx + tgy });
-    }
-
-    // Gather visible tokens (controlled + others visible from it)
-    const visibleTokens = [];
-    if (controlledToken?.mesh) {
-        visibleTokens.push(controlledToken);
-        const controlledSprite = cloneTokenSprite(controlledToken.mesh);
-        if (controlledSprite) {
-            const { gx, gy } = getTokenGridXY(controlledToken);
-            const depth = gx + gy;
-            plan.tokens.push({ sprite: controlledSprite, z: depth });
-            plan.debugTokens.push({ gx, gy, px: controlledToken.center.x, py: controlledToken.center.y });
-        }
-    }
-    for (const token of canvas.tokens.placeables) {
-        if (!token?.mesh) continue;
-        if (controlledToken && token.id === controlledToken.id) continue;
-        if (!controlledToken || canTokenSeeToken(controlledToken, token)) {
-            visibleTokens.push(token);
-            const tokenSprite = cloneTokenSprite(token.mesh);
-            if (!tokenSprite) continue;
-            const { gx, gy } = getTokenGridXY(token);
-            const depth = gx + gy;
-            plan.tokens.push({ sprite: tokenSprite, z: depth });
-            plan.debugTokens.push({ gx, gy, px: token.center.x, py: token.center.y });
-        }
-    }
-
-    let controlledDepth = null;
-    let cGX = null, cGY = null;
-    if (controlledToken?.mesh) {
-        const g = getTokenGridXY(controlledToken);
-        cGX = g.gx; cGY = g.gy; controlledDepth = cGX + cGY;
-    }
-    for (const te of tileEntries) {
-        const occludesControlled = controlledToken ? (cGX >= te.gx && cGY <= te.gy) : false;
-        if (occludesControlled) {
-            // Represent the whole tile using an occluder clone at controlled token depth
-            const occ = cloneTileSprite(te.tile, te.walls, true);
-            if (occ && controlledDepth !== null) plan.occluders.push({ sprite: occ, z: controlledDepth + 0.5 });
-        } else {
-            // For non-occluding tiles, place a base clone on the tiles layer
-            const clonedSprite = cloneTileSprite(te.tile, te.walls, false);
-            if (clonedSprite) plan.tiles.push({ sprite: clonedSprite });
-        }
-    }
-
-    // Occluder clones on tokens layer (for proper stacking), only for tiles that actually occlude each token
-    const hideSet = new Set(plan.hideOriginalTileIds || []);
-    for (const tk of visibleTokens) {
-        const { gx, gy } = getTokenGridXY(tk);
-        const depth = gx + gy;
-        const occludingTiles = tileEntries.filter(te => gx >= te.gx && gy <= te.gy);
-        for (const te of occludingTiles) {
-            // If we already added an occluder at controlled depth, skip duplication for the controlled token
-            if (controlledToken && tk.id === controlledToken.id && hideSet.has(te.tile.id)) continue;
-            const occ = cloneTileSprite(te.tile, te.walls, true);
-            if (occ) plan.occluders.push({ sprite: occ, z: depth + 0.5 });
-        }
-    }
-
-    // Reflect the final hide set into the plan
-    plan.hideOriginalTileIds = Array.from(hideSet);
-    return plan;
-}
-
-function addDebugOverlays(plan) {
-    if (!DEBUG_PRINT) return;
-    if (!tokensLayer) return;
-    try {
-        const tileStyle = new PIXI.TextStyle({ fontSize: 12, fill: '#00ffff', stroke: '#000000', strokeThickness: 3 });
-        const tokenStyle = new PIXI.TextStyle({ fontSize: 12, fill: '#ffff00', stroke: '#000000', strokeThickness: 3 });
-
-            for (const t of plan.debugTiles || []) {
-                const txt = new PIXI.Text(`T(${t.gx},${t.gy})`, tileStyle);
-                txt.anchor.set(0.5, 1);
-                txt.position.set(t.px, t.py - 4);
-                txt.zIndex = (t.gx ?? 0) + (t.gy ?? 0);
-                txt.eventMode = 'passive';
-                tokensLayer.addChild(txt);
-            }
-
-        for (const k of plan.debugTokens || []) {
-            const txt = new PIXI.Text(`K(${k.gx},${k.gy})`, tokenStyle);
-            txt.anchor.set(0.5, 1);
-            txt.position.set(k.px, k.py - 16);
-            txt.zIndex = (k.gx ?? 0) + (k.gy ?? 0);
-            txt.eventMode = 'passive';
-            tokensLayer.addChild(txt);
-        }
-    } catch (err) {
-        console.error('Dynamic Tile Debug overlay error:', err);
-    }
-}
-
-function ensureWallIdsArray(linkedWallIds) {
-    if (!linkedWallIds) return [];
-    if (Array.isArray(linkedWallIds)) return linkedWallIds;
-    if (typeof linkedWallIds === 'string') {
-        if (!linkedWallIds.trim()) return [];
-        return linkedWallIds.split(',').map(id => id.trim()).filter(id => id);
-    }
-    if (typeof linkedWallIds === 'object') {
+    // Debug overlay revival: build a lightweight plan object compatible with addDebugOverlays()
+    if (DEBUG_PRINT) {
         try {
-            return JSON.stringify(linkedWallIds)
-                .replace(/[{}\[\]"]/g, '')
-                .split(',')
-                .map(id => id.trim())
-                .filter(id => id);
-        } catch (e) {
-            return [];
-        }
+            const plan = { debugTiles: [], debugTokens: [] };
+            for (const tile of canvas.tiles.placeables) {
+                if (!tile?.mesh) continue;
+                const { gx, gy } = getTileBottomCornerGridXY(tile);
+                plan.debugTiles.push({ gx, gy, px: tile.document.x, py: tile.document.y + tile.document.height });
+            }
+            for (const token of canvas.tokens.placeables) {
+                if (!token?.center) continue;
+                const { gx, gy } = getTokenGridXY(token);
+                plan.debugTokens.push({ gx, gy, px: token.center.x, py: token.center.y });
+            }
+            if (tokensLayer) {
+                tokensLayer.visible = true; // ensure visible for debug text
+                tokensLayer.removeChildren(); // clear previous debug labels
+            }
+            addDebugOverlays(plan);
+        } catch (e) { if (DEBUG_PRINT) console.warn('addDebugOverlays failed', e); }
+    } else if (tokensLayer) {
+        // Hide legacy/debug layer when not debugging
+        tokensLayer.visible = false;
+        tokensLayer.removeChildren();
     }
-    return [];
 }
+
+// addDebugOverlays & ensureWallIdsArray moved to overlay.js and tile.js respectively
 
 function getLinkedWalls(tile) {
     if (!tile || !tile.document) return [];
     const linkedWallIds = ensureWallIdsArray(tile.document.getFlag(MODULE_ID, 'linkedWallIds'));
     return linkedWallIds.map(id => canvas.walls.get(id)).filter(Boolean);
-}
-
-function canTokenSeeToken(sourceToken, targetToken) {
-    if (!sourceToken || !targetToken) return false;
-    return canvas.visibility?.testVisibility(targetToken.center, { tolerance: 2 });
 }
 
 // Grid helpers and rule: a token (gx, gy) is occluded by a tile whose bottom-corner grid is (tx, ty)

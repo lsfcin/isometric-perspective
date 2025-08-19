@@ -9,6 +9,7 @@ export function registerTileConfig() {
   Hooks.on("updateTile", handleUpdateTile);
   Hooks.on("refreshTile", handleRefreshTile);
   Hooks.on("updateWall", handleUpdateWall);
+  Hooks.on('getSceneControlButtons', injectTileLayerButtons);
 
   // Track the raw drop point for tile creation so we can correct placement
   Hooks.on('dropCanvasData', (_canvas, data) => {
@@ -35,11 +36,88 @@ export function registerTileConfig() {
 // Last recorded intended bottom-left point for a tile (from the most recent drop)
 let lastTileDesiredBottomLeft = null;
 
+// ---- Toolbar Injection ----
+function injectTileLayerButtons(controls) {
+  const tilesCtl = controls.find(b => b.name === 'tiles');
+  if (!tilesCtl) return;
+  // Deduplicate: if we've already added our buttons (check by name), skip
+  if (tilesCtl.tools.some(t => t?.name === 'iso-layer-background')) return;
+
+  // Remove stale legacy house icon button
+  try {
+    tilesCtl.tools = tilesCtl.tools.filter(t => {
+      if (!t) return false;
+      const icon = String(t.icon || '');
+      if (/fa-house|fa-home/i.test(icon)) return false;
+      return true;
+    });
+  } catch {}
+
+  // Determine common layer among selection
+  let selectedLayer = null;
+  try {
+    const sel = Array.from(canvas.tiles?.controlled || []);
+    if (sel.length) {
+      const first = sel[0].document.getFlag(MODULE_ID, 'isoLayer') || 'foreground';
+      if (sel.every(t => (t.document.getFlag(MODULE_ID, 'isoLayer') || 'foreground') === first)) selectedLayer = first;
+    }
+  } catch {}
+
+  const applyLayer = async (layer) => {
+    const sel = Array.from(canvas.tiles?.controlled || []);
+    if (!sel.length) { ui.notifications?.warn('Select at least one tile'); return; }
+    const updates = sel.map(t => ({ _id: t.document.id, [`flags.${MODULE_ID}.isoLayer`]: layer }));
+    await canvas.scene.updateEmbeddedDocuments('Tile', updates);
+    ui.controls.initialize();
+  };
+
+  tilesCtl.tools.push(
+    {
+      name: 'iso-layer-background',
+      title: 'Background Layer',
+      icon: 'fa-regular fa-square',
+      active: selectedLayer === 'background',
+      onClick: () => applyLayer('background'),
+      button: true
+    },
+    {
+      name: 'iso-layer-foreground',
+      title: 'Foreground Layer',
+      icon: 'fa-solid fa-square',
+      active: selectedLayer !== 'background',
+      onClick: () => applyLayer('foreground'),
+      button: true
+    },
+    {
+      name: 'tile-bring-front',
+      title: 'Bring Selected Tiles to Front (Sort)',
+      icon: 'fa-solid fa-arrow-up-wide-short',
+      onClick: () => bringSelectedTilesToFront(),
+      button: true
+    },
+    {
+      name: 'tile-send-back',
+      title: 'Send Selected Tiles to Back (Sort)',
+      icon: 'fa-solid fa-arrow-down-short-wide',
+      onClick: () => sendSelectedTilesToBack(),
+      button: true
+    },
+    {
+      name: 'dynamic-tile-flip',
+      title: 'Flip Selected Tiles',
+      icon: 'fa-solid fa-arrows-left-right',
+      onClick: () => flipSelectedTiles(),
+      button: true
+    }
+  );
+}
+
 async function handleRenderTileConfig(app, html, data) {
   const linkedWallIds = app.object.getFlag(MODULE_ID, 'linkedWallIds') || [];
   const wallIdsString = Array.isArray(linkedWallIds) ? linkedWallIds.join(', ') : linkedWallIds;
 
   // Carrega o template HTML para a nova aba
+  const isoLayer = app.object.getFlag(MODULE_ID, 'isoLayer') || 'foreground';
   const tabHtml = await renderTemplate("modules/isometric-perspective/templates/tile-config.html", {
   // Default should be unchecked/false so opening the config doesn't disable isometric tiles
   isoDisabled: app.object.getFlag(MODULE_ID, 'isoTileDisabled') ?? 0,
@@ -48,9 +126,10 @@ async function handleRenderTileConfig(app, html, data) {
     offsetX: app.object.getFlag(MODULE_ID, 'offsetX') ?? 0,
     offsetY: app.object.getFlag(MODULE_ID, 'offsetY') ?? 0,
     linkedWallIds: wallIdsString,
-  isOccluding: app.object.getFlag(MODULE_ID, 'OccludingTile') ?? false,
-  // Fallback 0.8 opacity when not yet defined
-  occlusionAlpha: app.object.getFlag(MODULE_ID, 'OcclusionAlpha') ?? 0.8,
+    isForeground: isoLayer !== 'background',
+    isBackground: isoLayer === 'background',
+    // Retain legacy occlusion alpha only for foreground tiles for backward compatibility (hidden otherwise)
+    occlusionAlpha: app.object.getFlag(MODULE_ID, 'OcclusionAlpha') ?? 1,
   useImagePreset: app.object.getFlag(MODULE_ID, 'useImagePreset') ?? true
   });
 
@@ -69,7 +148,7 @@ async function handleRenderTileConfig(app, html, data) {
   const isoTileCheckbox = html.find('input[name="flags.isometric-perspective.isoTileDisabled"]');
   const flipCheckbox = html.find('input[name="flags.isometric-perspective.tokenFlipped"]');
   const linkedWallInput = html.find('input[name="flags.isometric-perspective.linkedWallIds"]');
-  const occludingCheckbox = html.find('input[name="flags.isometric-perspective.OccludingTile"]');
+  const layerSelect = html.find('select[name="flags.isometric-perspective.isoLayer"]');
   const occAlphaSlider = html.find('input[name="flags.isometric-perspective.OcclusionAlpha"]');
   const occAlphaGroup = html.find('.occlusion-alpha-group');
   // Preset checkbox (declare early so we can set default before later code references)
@@ -79,16 +158,11 @@ async function handleRenderTileConfig(app, html, data) {
   flipCheckbox.prop("checked", app.object.getFlag(MODULE_ID, "tokenFlipped"));
   linkedWallInput.val(wallIdsString);
   // Apply defaults for Place Tile flow (flags may be undefined before creation)
-  const existingOccluding = app.object.getFlag(MODULE_ID, 'OccludingTile');
   const existingAlpha = app.object.getFlag(MODULE_ID, 'OcclusionAlpha');
   const existingUsePreset = app.object.getFlag(MODULE_ID, 'useImagePreset');
-  const occludingDefault = existingOccluding === undefined ? true : existingOccluding;
-  // Treat a value of exactly 1 as the engine's implicit starting point and still apply our module default 0.8
-  const alphaDefault = (existingAlpha === undefined || existingAlpha === 1) ? 0.8 : existingAlpha;
+  const alphaDefault = existingAlpha === undefined ? 1 : existingAlpha;
   const usePresetDefault = existingUsePreset === undefined ? true : existingUsePreset;
-
-  occludingCheckbox.prop("checked", occludingDefault);
-  occAlphaSlider.val(alphaDefault);
+  if (occAlphaSlider.length) occAlphaSlider.val(alphaDefault);
   // Update displayed numeric label beside slider
   const occAlphaValueSpan = occAlphaSlider.closest('.form-fields').find('.range-value');
   occAlphaValueSpan.text(alphaDefault);
@@ -154,13 +228,12 @@ async function handleRenderTileConfig(app, html, data) {
   });
   // Show/hide occlusion alpha group based on occluding checkbox (respect default)
   const syncOccGroup = () => {
-    const checked = occludingCheckbox.prop('checked');
-    occAlphaGroup.css('display', checked ? 'flex' : 'none');
+    const layer = layerSelect.val();
+    // Hide occlusion alpha when background (no occlusion effect); show only for foreground
+    occAlphaGroup.css('display', layer === 'foreground' ? 'flex' : 'none');
   };
   syncOccGroup();
-  occludingCheckbox.on('change', () => {
-    syncOccGroup();
-  });
+  layerSelect.on('change', () => syncOccGroup());
 
   // Set initial state for simplified preset checkbox (already defaulted above)
   if (usePresetCheckbox && usePresetCheckbox.length && usePresetCheckbox.prop('checked') === false && usePresetDefault) {
@@ -188,16 +261,18 @@ async function handleRenderTileConfig(app, html, data) {
       await app.object.unsetFlag(MODULE_ID, "tokenFlipped");
     }
 
-    if (html.find('input[name="flags.isometric-perspective.OccludingTile"]').prop("checked")) {
-      await app.object.setFlag(MODULE_ID, "OccludingTile", true);
-    } else {
-      await app.object.unsetFlag(MODULE_ID, "OccludingTile");
-    }
+    // Persist isoLayer selection
+    try {
+      const layer = layerSelect.val() === 'background' ? 'background' : 'foreground';
+      await app.object.setFlag(MODULE_ID, 'isoLayer', layer);
+    } catch {}
 
-    // Persist occlusion alpha
-    if (occAlphaSlider.length) {
+    // Persist occlusion alpha only if foreground
+    if (occAlphaSlider.length && layerSelect.val() === 'foreground') {
       const v = Math.max(0, Math.min(1, parseFloat(occAlphaSlider.val())));
       await app.object.setFlag(MODULE_ID, 'OcclusionAlpha', v);
+    } else {
+      try { await app.object.unsetFlag(MODULE_ID, 'OcclusionAlpha'); } catch {}
     }
 
     // Persist simplified auto preset usage opt-in
@@ -504,6 +579,79 @@ async function ensureAnchorsForWalls(tileDocument, wallIdsArray) {
     mutated = true;
   }
   if (mutated) await tileDocument.setFlag(MODULE_ID, 'linkedWallAnchors', anchors);
+}
+
+// Exported utility: normalize linked wall IDs input into an array of strings
+export function ensureWallIdsArray(linkedWallIds) {
+  if (!linkedWallIds) return [];
+  if (Array.isArray(linkedWallIds)) return linkedWallIds;
+  if (typeof linkedWallIds === 'string') {
+    if (!linkedWallIds.trim()) return [];
+    return linkedWallIds.split(',').map(id => id.trim()).filter(id => id);
+  }
+  if (typeof linkedWallIds === 'object') {
+    try {
+      return JSON.stringify(linkedWallIds)
+        .replace(/[{}\[\]"]/g, '')
+        .split(',')
+        .map(id => id.trim())
+        .filter(id => id);
+    } catch (e) { return []; }
+  }
+  return [];
+}
+
+// ---- Sorting & Flip Helpers (migrated from dynamic tile system) ----
+async function bringSelectedTilesToFront() {
+  try {
+    const selected = Array.from(canvas.tiles?.controlled || []);
+    if (!selected.length) return;
+    const allSorts = canvas.tiles.placeables.map(t => typeof t.document?.sort === 'number' ? t.document.sort : 0);
+    const maxSort = allSorts.length ? Math.max(...allSorts) : 0;
+    const ordered = selected.sort((a,b)=>(a.document.sort||0)-(b.document.sort||0));
+    let next = maxSort + 1;
+    const updates = ordered.map(t => ({ _id: t.document.id, sort: next++ }));
+    await canvas.scene.updateEmbeddedDocuments('Tile', updates);
+  } catch (e) { if (DEBUG_PRINT) console.warn('bringSelectedTilesToFront failed', e); }
+}
+
+async function sendSelectedTilesToBack() {
+  try {
+    const selected = Array.from(canvas.tiles?.controlled || []);
+    if (!selected.length) return;
+    const allSorts = canvas.tiles.placeables.map(t => typeof t.document?.sort === 'number' ? t.document.sort : 0);
+    const minSort = allSorts.length ? Math.min(...allSorts) : 0;
+    const ordered = selected.sort((a,b)=>(a.document.sort||0)-(b.document.sort||0));
+    let start = minSort - ordered.length;
+    const updates = ordered.map(t => ({ _id: t.document.id, sort: start++ }));
+    await canvas.scene.updateEmbeddedDocuments('Tile', updates);
+  } catch (e) { if (DEBUG_PRINT) console.warn('sendSelectedTilesToBack failed', e); }
+}
+
+async function flipSelectedTiles() {
+  try {
+    const selected = Array.from(canvas.tiles?.controlled || []);
+    if (!selected.length) return;
+    const updates = [];
+    for (const t of selected) {
+      const doc = t.document;
+      const w = Number(doc.width) || 0;
+      const h = Number(doc.height) || 0;
+      const yVal = Number(doc.y) || 0;
+      const curOffY = Number(doc.getFlag(MODULE_ID, 'offsetY')) || 0;
+      const flipped = !!doc.getFlag(MODULE_ID, 'tokenFlipped');
+      const newY = yVal + (h - w);
+      updates.push({
+        _id: doc.id,
+        width: h,
+        height: w,
+        y: newY,
+        [`flags.${MODULE_ID}.tokenFlipped`]: !flipped,
+        [`flags.${MODULE_ID}.offsetY`]: -curOffY
+      });
+    }
+    if (updates.length) await canvas.scene.updateEmbeddedDocuments('Tile', updates);
+  } catch (e) { if (DEBUG_PRINT) console.warn('flipSelectedTiles failed', e); }
 }
 
 // Flip anchors diagonally across the line dx=dy (swap) around the tile's bottom-left origin

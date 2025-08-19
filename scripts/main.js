@@ -14,7 +14,7 @@ import { registerTilePresetStorage } from './presets.js';
 
 // ---------- CONSTANTS ----------
 const MODULE_ID = "isometric-perspective";
-let DEBUG_PRINT;
+let DEBUG_PRINT = true;
 let WORLD_ISO_FLAG;
 let FOUNDRY_VERSION;
 

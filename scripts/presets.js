@@ -59,7 +59,10 @@ export function extractTilePreset(tileDocument) {
   const flags = tileDocument.getFlag(MODULE_ID, '') || {}; // bulk fetch not supported; collect individually
   // Explicitly collect known flags we care about now (others can be added later)
   const wanted = [
-    'isoTileDisabled','scale','tokenFlipped','offsetX','offsetY',
+  'isoTileDisabled','scale','tokenFlipped','offsetX','offsetY',
+  // New layer flag replacing OccludingTile boolean UX
+  'isoLayer',
+  // Legacy flags kept for backward compatibility; will be ignored by new layer system if present
   'OccludingTile','OcclusionAlpha','linkedWallIds','linkedWallAnchors'
   ];
   const collected = {};
@@ -158,9 +161,16 @@ export async function applyTilePreset(tileDocument, presetName, { includeSize = 
     for (const [k, v] of Object.entries(data.flags)) {
       // We'll rebuild walls separately if cloning; skip direct ID/anchor injection in that case
       if (k === 'linkedWallIds' || k === 'linkedWallAnchors') continue;
+      // If applying legacy OccludingTile flag without isoLayer present, map true->foreground, false->background
+      if (k === 'OccludingTile' && !('isoLayer' in data.flags)) {
+        update[`flags.${MODULE_ID}.isoLayer`] = v ? 'foreground' : 'background';
+        continue;
+      }
       update[`flags.${MODULE_ID}.${k}`] = v;
     }
   }
+  // Ensure isoLayer flag exists (default foreground) even if not in preset flags yet
+  if (!('isoLayer' in (data.flags||{}))) update[`flags.${MODULE_ID}.isoLayer`] = 'foreground';
   await canvas.scene.updateEmbeddedDocuments('Tile', [update]);
 
   // Clone walls only if requested and tile currently has none (or only stale references), and preset had anchor data
