@@ -78,18 +78,6 @@ Hooks.once("init", function() {
     type: Boolean,
     requiresReload: true
   });
-
-  /*
-  game.settings.register(MODULE_ID, 'enableOcclusionTokenSilhouette', {
-    name: game.i18n.localize('isometric-perspective.settings_token_silhouette_name'), //name: 'Enable Occlusion: Token Silhouette',
-    hint: game.i18n.localize('isometric-perspective.settings_token_silhouette_hint'), //hint: 'Adjusts the visibility of tiles dynamically with the positioning of tokens. See how this feature works here.',
-    scope: 'client',
-    config: true,
-    default: false,
-    type: Boolean,
-    requiresReload: true
-  });
-  */
   
   game.settings.register(MODULE_ID, 'enableOcclusionTokenSilhouette', {
   name: game.i18n.localize('isometric-perspective.settings_token_silhouette_name'),
@@ -129,7 +117,6 @@ Hooks.once("init", function() {
     default: false,
     type: Boolean,
     requiresReload: true
-    //onChange: settings => window.location.reload()
   });
 
   // Module keybindings

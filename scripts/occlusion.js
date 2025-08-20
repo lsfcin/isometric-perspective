@@ -144,30 +144,6 @@ function updateOcclusionLayer() {
 	});
 }
 
-
-
-
-
-
-
-// Token-Tile Intersection Check
-// function checkTokenTileIntersection(token, tile) {
-// 	// Basic intersection check using bounding boxes
-// 	const tokenBounds = token.mesh.getBounds();
-// 	const tileBounds = tile.mesh.getBounds();
-	
-// 	if (DEBUG_PRINT) {
-// 		let DEBUG_INTERSECTION = true;
-// 		debugVisualIntersection(token, tile, DEBUG_INTERSECTION);
-// 	}
-
-// 	return (
-// 		tokenBounds.x < tileBounds.x + tileBounds.width &&
-// 		tokenBounds.x + tokenBounds.width > tileBounds.x &&
-// 		tokenBounds.y < tileBounds.y + tileBounds.height &&
-// 		tokenBounds.y + tokenBounds.height > tileBounds.y
-// 	);
-// }
 function checkTokenTileIntersection(token, tile) {
 	// Get bounding boxes
 	const tokenBounds = token.mesh.getBounds();
@@ -204,12 +180,6 @@ function checkTokenTileIntersection(token, tile) {
 	);
 }
 
-
-
-
-
-
-
 // Create Occlusion Sprite with Advanced Masking
 function createOcclusionSprite(token, intersectingTiles) {
 	if (!token.mesh || !token.mesh.texture) return null;
@@ -236,19 +206,6 @@ function createOcclusionSprite(token, intersectingTiles) {
 
 	return sprite;
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 // Advanced Occlusion Mask Creation
 const alphaFragmentShader = `
@@ -285,7 +242,6 @@ void main(void) {
 		gl_FragColor = vec4(0.0, 0.0, 0.0, 0.0); // Transparente
 	}
 }
-
 `;
 
 function createOcclusionMask(token, intersectingTiles) {
@@ -341,19 +297,6 @@ function createOcclusionMask_gpu(token, intersectingTiles) {
 	maskGraphics.endFill();
 	return maskGraphics;
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 // 4/10 versão otimizada 2 (não senti muita diferença)
 function createOcclusionMask_cpu(token, intersectingTiles, chunkSize) {
