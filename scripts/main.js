@@ -69,6 +69,16 @@ Hooks.once("init", function() {
     requiresReload: true
   });
 
+  game.settings.register(MODULE_ID, 'enableCornerVisibilityCulling', {
+  name: 'Isometric: Corner Visibility Culling',
+  hint: 'Hide tiles and non-viewer tokens if none of their grid corners are within LOS/vision of any of the user\'s visible tokens.',
+    scope: 'client',
+    config: true,
+    default: false,
+    type: Boolean,
+    requiresReload: false
+  });
+
   game.settings.register(MODULE_ID, 'enableAutoSorting', {
   name: game.i18n.localize('isometric-perspective.settings_token_sort_name'),
   hint: game.i18n.localize('isometric-perspective.settings_token_sort_hint'),

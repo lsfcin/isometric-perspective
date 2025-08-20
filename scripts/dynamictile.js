@@ -256,6 +256,7 @@ function cloneTileSprite(tilePlaceable) {
     sprite.opacityGroup = 'tiles';
     sprite.eventMode = 'passive';
     sprite.originalTile = tilePlaceable;
+    sprite._isoVisibility = true;
     return sprite;
 }
 
@@ -279,6 +280,7 @@ function cloneTokenSprite(token) {
         sprite.opacityGroup = 'tokens';
         sprite.eventMode = 'passive';
         sprite.originalToken = token;
+    sprite._isoVisibility = true;
     // Mirror Foundry visibility (covers hidden, vision-based, permission-based). If token.visible is false, hide clone.
     try { sprite.visible = !!token.visible; } catch { sprite.visible = true; }
         try { token.mesh.alpha = 0; } catch {}
@@ -481,8 +483,55 @@ function updateAlwaysVisibleElements() {
     const { tokenEntries, tokenDepthMap } = computeTokenEntries(foregroundTileEntries);
     refineTokenOrdering(tokenEntries, tokenDepthMap);
     renderForeground(foregroundTileEntries, tokenEntries);
+    applyCornerVisibilityCulling(foregroundTileEntries, tokenEntries);
     updateLayerOpacity(foregroundContainer);
     buildDebugPlan(foregroundTileEntries, backgroundTileDocs, tokenDepthMap);
+}
+
+// Corner-based visibility culling: hide cloned foreground tiles and token clones if none of their corners
+// are in LOS of any player-observed token (or controlled tokens). Applies only if setting enabled.
+function applyCornerVisibilityCulling(foregroundTileEntries, tokenEntries) {
+    try {
+        if (!game.settings.get(MODULE_ID, 'enableCornerVisibilityCulling')) return;
+        // Gather viewer tokens (controlled or owned & visible)
+        let viewers = canvas.tokens.controlled.filter(t=>t.visible);
+        if (!viewers.length) viewers = canvas.tokens.placeables.filter(t=> t.visible && t.actor?.hasPlayerOwner);
+        if (!viewers.length) return; // nothing to compare
+        const viewerIds = new Set(viewers.map(v=>v.id));
+        const gs = canvas.grid?.size || 1;
+        const testVisibility = (x,y) => {
+            try {
+                if (!canvas?.effects?.visibility?.testVisibility) return true; // fallback: do not hide
+                for (const v of viewers) {
+                    if (canvas.effects.visibility.testVisibility({x,y},{object:v})) return true;
+                }
+            } catch { return true; }
+            return false;
+        };
+        const testCorners = (x,y,w,h) => {
+            const pts = [
+                [x, y],[x+w, y],[x, y+h],[x+w, y+h]
+            ];
+            for (const [px,py] of pts) if (testVisibility(px+0.001, py+0.001)) return true;
+            return false;
+        };
+        // Cull tiles (foreground clones only)
+        for (const entry of foregroundTileEntries) {
+            const tile = entry.tile; const doc = tile.document;
+            const visible = testCorners(doc.x, doc.y, doc.width, doc.height);
+            entry.sprite.visible = visible;
+            entry.sprite._isoVisibility = visible;
+        }
+        // Cull token clones unless they are viewer tokens themselves (always visible)
+        for (const entry of tokenEntries) {
+            const token = entry.token; const doc = token.document;
+            if (viewerIds.has(token.id)) { entry.sprite.visible = true; entry.sprite._isoVisibility = true; continue; }
+            const w = (doc.width||1)*gs; const h=(doc.height||1)*gs;
+            const visible = testCorners(doc.x, doc.y, w, h);
+            entry.sprite.visible = visible;
+            entry.sprite._isoVisibility = visible;
+        }
+    } catch (e) { if (DEBUG_PRINT) console.warn('applyCornerVisibilityCulling failed', e); }
 }
 
 // addDebugOverlays & ensureWallIdsArray moved to overlay.js and tile.js respectively
