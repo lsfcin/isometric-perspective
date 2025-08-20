@@ -76,7 +76,7 @@ function injectTileLayerButtons(controls) {
   }
 
   const selTiles = Array.from(canvas.tiles?.controlled || []);
-  if (!selTiles.length) return; // no selection => no custom buttons
+  if (!isIsoScene || !selTiles.length) return; // not iso or no selection => leave native buttons alone
 
   // Determine which layers are represented in the current selection
   let hasForeground = false;
