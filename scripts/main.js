@@ -70,7 +70,7 @@ Hooks.once("init", function() {
   });
 
   game.settings.register(MODULE_ID, 'enableCornerVisibilityCulling', {
-  name: 'Isometric: Corner Visibility Culling',
+  name: 'Isometric: Visibility Culling',
   hint: 'Hide tiles and non-viewer tokens if none of their grid corners are within LOS/vision of any of the user\'s visible tokens.',
     scope: 'client',
     config: true,

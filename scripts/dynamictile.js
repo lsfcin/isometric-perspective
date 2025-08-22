@@ -256,8 +256,7 @@ function cloneTileSprite(tilePlaceable) {
     sprite.opacityGroup = 'tiles';
     sprite.eventMode = 'passive';
     sprite.originalTile = tilePlaceable;
-    //sprite._isoVisibility = true;
-    sprite._isoVisibility = false;
+    sprite._isoVisibility = true;
     return sprite;
 }
 
@@ -281,8 +280,7 @@ function cloneTokenSprite(token) {
         sprite.opacityGroup = 'tokens';
         sprite.eventMode = 'passive';
         sprite.originalToken = token;
-    //sprite._isoVisibility = true;
-    sprite._isoVisibility = false;
+    sprite._isoVisibility = true;
     // Mirror Foundry visibility (covers hidden, vision-based, permission-based). If token.visible is false, hide clone.
     try { sprite.visible = !!token.visible; } catch { sprite.visible = true; }
         try { token.mesh.alpha = 0; } catch {}
@@ -578,21 +576,17 @@ function applyCornerVisibilityCulling(foregroundTileEntries, tokenEntries) {
             }
 
             // Update visibility
-            //entry.sprite.visible = visible;
-            //entry.sprite._isoVisibility = visible;
             entry.sprite.visible = visible;
-            entry.sprite._isoVisibility = false;
+            entry.sprite._isoVisibility = visible;
         }
         // Cull token clones unless they are viewer tokens themselves (always visible)
         for (const entry of tokenEntries) {
             const token = entry.token; const doc = token.document;
-            //if (viewerIds.has(token.id)) { entry.sprite.visible = true; entry.sprite._isoVisibility = true; continue; }
-            if (viewerIds.has(token.id)) { entry.sprite.visible = true; entry.sprite._isoVisibility = false; continue; }
+            if (viewerIds.has(token.id)) { entry.sprite.visible = true; entry.sprite._isoVisibility = true; continue; }
             const w = (doc.width||1)*gs; const h=(doc.height||1)*gs;
             const visible = testPerimeter(doc.x, doc.y, w, h);
             entry.sprite.visible = visible;
-            //entry.sprite._isoVisibility = visible;
-            entry.sprite._isoVisibility = false;
+            entry.sprite._isoVisibility = visible;
         }
     } catch (e) { if (DEBUG_PRINT) console.warn('applyCornerVisibilityCulling failed', e); }
 }
