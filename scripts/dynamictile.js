@@ -256,7 +256,8 @@ function cloneTileSprite(tilePlaceable) {
     sprite.opacityGroup = 'tiles';
     sprite.eventMode = 'passive';
     sprite.originalTile = tilePlaceable;
-    sprite._isoVisibility = true;
+    //sprite._isoVisibility = true;
+    sprite._isoVisibility = false;
     return sprite;
 }
 
@@ -280,7 +281,8 @@ function cloneTokenSprite(token) {
         sprite.opacityGroup = 'tokens';
         sprite.eventMode = 'passive';
         sprite.originalToken = token;
-    sprite._isoVisibility = true;
+    //sprite._isoVisibility = true;
+    sprite._isoVisibility = false;
     // Mirror Foundry visibility (covers hidden, vision-based, permission-based). If token.visible is false, hide clone.
     try { sprite.visible = !!token.visible; } catch { sprite.visible = true; }
         try { token.mesh.alpha = 0; } catch {}
@@ -508,28 +510,89 @@ function applyCornerVisibilityCulling(foregroundTileEntries, tokenEntries) {
             } catch { return true; }
             return false;
         };
-        const testCorners = (x,y,w,h) => {
-            const pts = [
-                [x, y],[x+w, y],[x, y+h],[x+w, y+h]
-            ];
+        // Sample points along the perimeter
+        const testPerimeter = (x,y,w,h) => {
+            
+            // Grab the grid size
+            const gridSize = canvas.grid?.size || 1;
+
+            const pts = []
+            for (let i = 0; i <= w; i += gridSize) pts.push([x + i, y]);
+            for (let i = 0; i <= w; i += gridSize) pts.push([x + i, y + h]);
+            for (let j = 0; j <= h; j += gridSize) pts.push([x, y + j]);
+            for (let j = 0; j <= h; j += gridSize) pts.push([x + w, y + j]);
+            
+            // const pts = [
+            //     [x, y],[x+w, y],[x, y+h],[x+w, y+h]
+            // ];
+
             for (const [px,py] of pts) if (testVisibility(px+0.001, py+0.001)) return true;
             return false;
         };
+        // Sample points along the line
+        const testLine = (x1,y1,x2,y2) => {
+
+            // Grab the grid size
+            const gridSize = canvas.grid?.size || 1;
+            const length = Math.hypot(x2 - x1, y2 - y1);
+            const steps = Math.ceil(length / gridSize);
+            const dx = (x2 - x1) / steps;
+            const dy = (y2 - y1) / steps;
+
+            const pts = []
+            for (let i = 0; i <= steps; i++) {
+                const x = x1 + dx * i;
+                const y = y1 + dy * i;
+                pts.push([x, y]);
+            }
+
+            for (const [px,py] of pts) if (testVisibility(px+0.001, py+0.001)) return true;
+            return false;
+        };
+
         // Cull tiles (foreground clones only)
         for (const entry of foregroundTileEntries) {
-            const tile = entry.tile; const doc = tile.document;
-            const visible = testCorners(doc.x, doc.y, doc.width, doc.height);
+            // Test tile's visibility based on its perimeter
+            const tile = entry.tile; 
+            const doc = tile.document;
+            const visible = testPerimeter(doc.x, doc.y, doc.width, doc.height);
+
+            // Test tile's visibility based on its walls vertices
+            if (!visible) {
+                const walls = getLinkedWalls(tile);
+                for (const wall of walls) {
+
+                    // Print wall values
+                    console.log("Wall:", wall);
+                    const x1 = wall.document.c[0];
+                    const y1 = wall.document.c[1];
+                    const x2 = wall.document.c[2];
+                    const y2 = wall.document.c[3];
+
+                    const wallVisible = testLine(x1, y1, x2, y2);
+                    if (wallVisible) {
+                        visible = true;
+                        break;
+                    }
+                }
+            }
+
+            // Update visibility
+            //entry.sprite.visible = visible;
+            //entry.sprite._isoVisibility = visible;
             entry.sprite.visible = visible;
-            entry.sprite._isoVisibility = visible;
+            entry.sprite._isoVisibility = false;
         }
         // Cull token clones unless they are viewer tokens themselves (always visible)
         for (const entry of tokenEntries) {
             const token = entry.token; const doc = token.document;
-            if (viewerIds.has(token.id)) { entry.sprite.visible = true; entry.sprite._isoVisibility = true; continue; }
+            //if (viewerIds.has(token.id)) { entry.sprite.visible = true; entry.sprite._isoVisibility = true; continue; }
+            if (viewerIds.has(token.id)) { entry.sprite.visible = true; entry.sprite._isoVisibility = false; continue; }
             const w = (doc.width||1)*gs; const h=(doc.height||1)*gs;
-            const visible = testCorners(doc.x, doc.y, w, h);
+            const visible = testPerimeter(doc.x, doc.y, w, h);
             entry.sprite.visible = visible;
-            entry.sprite._isoVisibility = visible;
+            //entry.sprite._isoVisibility = visible;
+            entry.sprite._isoVisibility = false;
         }
     } catch (e) { if (DEBUG_PRINT) console.warn('applyCornerVisibilityCulling failed', e); }
 }
