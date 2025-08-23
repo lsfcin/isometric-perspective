@@ -152,9 +152,9 @@ function migrateLegacyIsoLayerFlags() {
 
 function initializeNewTileFlags(tile) {
     try { if (!tile.getFlag(MODULE_ID, 'isoLayer')) tile.setFlag(MODULE_ID, 'isoLayer', 'foreground'); } catch { }
-    try { tile.setFlag(MODULE_ID, 'seenBy', []); } catch { }
     try { tile.setFlag(MODULE_ID, 'linkedWallIds', []); } catch { }
     try { tile.setFlag(MODULE_ID, 'OcclusionAlpha', 1); } catch { }
+    try { tile.setFlag(MODULE_ID, 'seenBy', []); } catch { }
 }
 
 async function handleTileUpdate(tileDocument, change) {
@@ -528,10 +528,6 @@ function applyVisibilityCulling(foregroundTileEntries, tokenEntries) {
             for (let j = 0; j <= h; j += gridSize) pts.push([x, y + j]);
             for (let j = 0; j <= h; j += gridSize) pts.push([x + w, y + j]);
 
-            // const pts = [
-            //     [x, y],[x+w, y],[x, y+h],[x+w, y+h]
-            // ];
-
             for (const [px, py] of pts) if (testVisibility(px + 0.001, py + 0.001)) return true;
             return false;
         };
@@ -592,9 +588,9 @@ function applyVisibilityCulling(foregroundTileEntries, tokenEntries) {
                 let seenBy = getSeenBy(tile);
 
                 // If we want a fog exploration shared by all tokens
-                //if (fogExploration && entry.sprite.originalTile.seenBy.size) 
+                //if (fogExploration && tile.seenBy.size) 
 
-                // If we want a per-token fog exploration
+                // If we want a per-token fog exploration (regarding tiles)
                 const intersection = seenBy.filter(id => viewerIds.has(id));
                 if (fogExploration && intersection.size) {
                     entry.sprite.visible = true;
