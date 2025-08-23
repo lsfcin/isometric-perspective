@@ -21,6 +21,7 @@ export function registerDynamicTileConfig() {
     registerTileHooks();
     registerTokenHooks();
     registerMiscHooks();
+    registerFogOfWarHooks();
 }
 
 function shouldEnableDynamicTiles() {
@@ -60,6 +61,27 @@ function registerMiscHooks() {
     Hooks.on('updateWall', handleUpdateWallDoorState);
     Hooks.on('createWall', () => updateAlwaysVisibleElements());
     Hooks.on('deleteWall', () => updateAlwaysVisibleElements());
+}
+
+// Add a hook for Fog of War reset
+function registerFogOfWarHooks() {
+    Hooks.once('ready', () => {
+        const fog = canvas?.fog;
+        if (fog && fog._handleReset instanceof Function) {
+            const original = fog._handleReset.bind(fog);
+            fog._handleReset = async function (...args) {
+                Hooks.callAll('resetFogOfWar', fog, ...args);
+                return original(...args);
+            };
+        }
+    });
+
+    // If fog reset was detected, remove all seenBy flags
+    Hooks.on('resetFogOfWar', (fogManager, ...args) => {
+        for (const tile of canvas.tiles.placeables) {
+            tile.seenBy = new Set();
+        }
+    });
 }
 
 // ---- Hook handlers ----
