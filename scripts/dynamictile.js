@@ -227,29 +227,6 @@ function updateLayerOpacity(layer) {
     });
 }
 
-// export function updateTilesOpacity(value) {
-//     tilesOpacity = Math.max(0, Math.min(1, value));
-//     // Only affects cloned foreground tiles; native background tiles keep their document alpha
-//     updateLayerOpacity(foreground);
-// }
-
-// Instead of adjusting a global tiles opacity, adjust the OcclusionAlpha per selected tile
-async function adjustSelectedTilesOcclusionAlpha(delta = 0.1) {
-    try {
-        const selected = Array.from(canvas.tiles?.controlled || []);
-        if (!selected.length) return;
-        const updates = [];
-        for (const t of selected) {
-            const doc = t.document;
-            const cur = Number(doc.getFlag(MODULE_ID, 'OcclusionAlpha'));
-            const base = Number.isFinite(cur) ? cur : 1;
-            const next = clamp01(base + delta);
-            updates.push({ _id: doc.id, [`flags.${MODULE_ID}.OcclusionAlpha`]: next });
-        }
-        if (updates.length) await canvas.scene.updateEmbeddedDocuments('Tile', updates);
-    } catch (e) { if (DEBUG_PRINT) console.warn('adjustSelectedTilesOcclusionAlpha failed', e); }
-}
-
 function cloneTileSprite(tilePlaceable) {
     const mesh = tilePlaceable?.mesh;
     if (!mesh) return null;

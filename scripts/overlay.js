@@ -15,7 +15,7 @@ function bringOverlayToTop() {
       canvas.stage.removeChild(hoverLayer);
       canvas.stage.addChild(hoverLayer); // hover above debug
     }
-  } catch {}
+  } catch { }
 }
 
 export function registerOverlayHooks() {
@@ -30,15 +30,15 @@ export function registerOverlayHooks() {
       hoverLayer.name = 'HoverHighlightLayer';
       hoverLayer.eventMode = 'passive';
       canvas.stage.addChild(hoverLayer);
-  // Debug layer just below hover overlays so selection rectangles remain on top
-  if (debugLayer) { try { canvas.stage.removeChild(debugLayer); debugLayer.destroy({ children: true }); } catch {} }
-  debugLayer = new PIXI.Container();
-  debugLayer.name = 'IsoDebugOverlay';
-  debugLayer.eventMode = 'passive';
-  canvas.stage.addChild(debugLayer);
-  // Keep overlay as the top-most layer
-  bringOverlayToTop();
-    } catch {}
+      // Debug layer just below hover overlays so selection rectangles remain on top
+      if (debugLayer) { try { canvas.stage.removeChild(debugLayer); debugLayer.destroy({ children: true }); } catch { } }
+      debugLayer = new PIXI.Container();
+      debugLayer.name = 'IsoDebugOverlay';
+      debugLayer.eventMode = 'passive';
+      canvas.stage.addChild(debugLayer);
+      // Keep overlay as the top-most layer
+      bringOverlayToTop();
+    } catch { }
   });
   Hooks.on('changeScene', () => {
     try {
@@ -52,8 +52,8 @@ export function registerOverlayHooks() {
         debugLayer.destroy({ children: true });
         debugLayer = null;
       }
-  if (_escKeyHandler) { try { window.removeEventListener('keydown', _escKeyHandler, true); } catch {} _escKeyHandler = null; }
-    } catch {}
+      if (_escKeyHandler) { try { window.removeEventListener('keydown', _escKeyHandler, true); } catch { } _escKeyHandler = null; }
+    } catch { }
   });
 
   // Keep overlay above other layers during common refreshes
@@ -68,7 +68,7 @@ export function registerOverlayHooks() {
 
   // Re-raise debug layer too
   Hooks.on('isometricOverlayBringToTop', () => {
-    try { if (debugLayer && debugLayer.parent === canvas.stage) { canvas.stage.removeChild(debugLayer); canvas.stage.addChild(debugLayer); } } catch {}
+    try { if (debugLayer && debugLayer.parent === canvas.stage) { canvas.stage.removeChild(debugLayer); canvas.stage.addChild(debugLayer); } } catch { }
   });
 
   // Token hover grid highlight (replaces previous purple circle)
@@ -76,23 +76,23 @@ export function registerOverlayHooks() {
     try {
       if (hovered) drawTokenGridHighlight(token); else clearTokenGridHighlight(token);
       bringOverlayToTop();
-    } catch {}
+    } catch { }
   });
 
   // ESC fallback: simulate unhover (clear any token hover highlights) when user presses Escape.
   if (!_escKeyHandler) {
     _escKeyHandler = (ev) => {
       if (ev.key === 'Escape') {
-        try { clearAllTokenGridHighlights(); } catch {}
+        try { clearAllTokenGridHighlights(); } catch { }
       }
     };
-    try { window.addEventListener('keydown', _escKeyHandler, true); } catch {}
+    try { window.addEventListener('keydown', _escKeyHandler, true); } catch { }
   }
 
   // (Alt-key listeners & window blur cleanup removed)
-  Hooks.on('refreshToken', (token) => { try { if (token?.hover) updateTokenGridHighlight(token); } catch {} bringOverlayToTop(); });
+  Hooks.on('refreshToken', (token) => { try { if (token?.hover) updateTokenGridHighlight(token); } catch { } bringOverlayToTop(); });
   Hooks.on('updateToken', (tokenDocument) => {
-    try { const token = canvas.tokens.get(tokenDocument.id); if (token?.hover) updateTokenGridHighlight(token); } catch {}
+    try { const token = canvas.tokens.get(tokenDocument.id); if (token?.hover) updateTokenGridHighlight(token); } catch { }
     bringOverlayToTop();
   });
 
@@ -100,7 +100,7 @@ export function registerOverlayHooks() {
   Hooks.on('controlToken', (token, controlled) => {
     try {
       if (token?.hover) updateTokenGridHighlight(token);
-    } catch {}
+    } catch { }
     bringOverlayToTop();
   });
 
@@ -116,7 +116,7 @@ export function registerOverlayHooks() {
       if (hovered && !tile.controlled) drawTileHoverOverlay(tile);
       else clearTileHoverOverlay(tile);
       bringOverlayToTop();
-    } catch {}
+    } catch { }
   });
 
   // Tile selection rectangle overlay
@@ -130,8 +130,8 @@ export function registerOverlayHooks() {
         clearTileSelectionOverlay(tile);
       }
       // keep the hover layer on top
-  bringOverlayToTop();
-    } catch {}
+      bringOverlayToTop();
+    } catch { }
   });
   Hooks.on('refreshTile', (tile) => {
     try {
@@ -145,7 +145,7 @@ export function registerOverlayHooks() {
         drawTileHoverOverlay(tile);
         bringOverlayToTop();
       }
-    } catch {}
+    } catch { }
   });
   Hooks.on('updateTile', (tileDocument) => {
     try {
@@ -159,10 +159,10 @@ export function registerOverlayHooks() {
         drawTileHoverOverlay(tile);
         bringOverlayToTop();
       }
-    } catch {}
+    } catch { }
   });
   Hooks.on('deleteTile', (tile) => {
-    try { clearTileSelectionOverlay(tile); clearTileHoverOverlay(tile); } catch {}
+    try { clearTileSelectionOverlay(tile); clearTileHoverOverlay(tile); } catch { }
     bringOverlayToTop();
   });
 }
@@ -176,7 +176,7 @@ function colorStringToNumber(str, fallback = 0x9b59b6) {
       }
       return Number.parseInt(str.slice(1), 16);
     }
-  } catch {}
+  } catch { }
   return fallback;
 }
 
@@ -185,7 +185,7 @@ function getTokenOwnerColorNumber(token, fallback = 0x9b59b6) {
     const owners = game.users?.players?.filter(u => token?.actor?.testUserPermission?.(u, CONST.DOCUMENT_OWNERSHIP_LEVELS.OWNER)) || [];
     const chosen = owners.find(u => u.active) || owners[0];
     if (chosen?.color) return colorStringToNumber(chosen.color, fallback);
-  } catch {}
+  } catch { }
   if (game.user?.color) return colorStringToNumber(game.user.color, fallback);
   return fallback;
 }
@@ -210,12 +210,12 @@ function drawTokenGridHighlight(token) {
     const pxH = hUnits * grid;
     const x = Number(token.document?.x ?? token.x ?? token.position?.x) || 0;
     const y = Number(token.document?.y ?? token.y ?? token.position?.y) || 0;
-  const outline = token.controlled ? 0xffa500 : 0x33bbff; // orange if selected, blue otherwise
-  // Outer dark stroke for contrast then colored stroke (no fill)
-  g.lineStyle(4, 0x000000, 0.35);
-  g.drawRect(x, y, pxW, pxH);
-  g.lineStyle(2, outline, 0.95);
-  g.drawRect(x, y, pxW, pxH);
+    const outline = token.controlled ? 0xffa500 : 0x33bbff; // orange if selected, blue otherwise
+    // Outer dark stroke for contrast then colored stroke (no fill)
+    g.lineStyle(4, 0x000000, 0.35);
+    g.drawRect(x, y, pxW, pxH);
+    g.lineStyle(2, outline, 0.95);
+    g.drawRect(x, y, pxW, pxH);
   } catch (e) { console.warn('drawTokenGridHighlight failed', e); }
   hoverLayer.addChild(g);
 }
@@ -237,7 +237,7 @@ function clearAllTokenGridHighlights() {
     // Remove all children whose name starts with TokenGridHover-
     const toRemove = hoverLayer.children.filter(c => typeof c?.name === 'string' && c.name.startsWith('TokenGridHover-'));
     for (const c of toRemove) hoverLayer.removeChild(c);
-  } catch {}
+  } catch { }
 }
 
 function drawTileSelectionOverlay(tile) {
@@ -257,7 +257,7 @@ function drawTileSelectionOverlay(tile) {
     const w = tile.document.width;
     const h = tile.document.height;
 
-  const stroke = 0xffa500;
+    const stroke = 0xffa500;
     g.lineStyle(2, stroke, 0.95);
     g.drawRect(x, y, w, h);
 
@@ -267,9 +267,9 @@ function drawTileSelectionOverlay(tile) {
     g.endFill();
 
     hoverLayer.addChild(g);
-  bringOverlayToTop();
-  // Also (re)draw linked walls so they persist through selection redraws
-  drawLinkedWallsOverlay(tile);
+    bringOverlayToTop();
+    // Also (re)draw linked walls so they persist through selection redraws
+    drawLinkedWallsOverlay(tile);
   } catch (e) {
     console.error('Tile selection overlay draw error:', e);
   }
@@ -334,30 +334,69 @@ function drawLinkedWallsOverlay(tile) {
     const group = new PIXI.Container();
     group.name = `TileWalls-${tile.id}`;
     group.eventMode = 'passive';
-  // Foundry default style approximations: normal(white), door(purple), secret(orange), invisible(cyan)
-  const COLOR_NORMAL = 0xffc864;
+    // Foundry default style approximations: normal(white), door(purple), secret(orange), invisible(cyan)
+    const COLOR_NORMAL = 0xffc864;
 
+    // for (const wid of ids) {
+    //   const wall = canvas.walls.get(wid);
+    //   if (!wall) continue;
+    //   // Version-agnostic endpoint extraction
+    //   let ax, ay, bx, by;
+    //   if (wall.A && wall.B) { // v11 style
+    //     ax = wall.A.x; ay = wall.A.y; bx = wall.B.x; by = wall.B.y;
+    //   } else if (wall.edge?.a && wall.edge?.b) { // v10 style
+    //     ax = wall.edge.a.x; ay = wall.edge.a.y; bx = wall.edge.b.x; by = wall.edge.b.y;
+    //   } else continue;
+    //   const g = new PIXI.Graphics();
+    //   g.eventMode = 'passive';
+
+    //   let color = COLOR_NORMAL;
+
+
+    //   g.lineStyle(5, 0x000000, 0.35);
+    //   g.moveTo(ax, ay); g.lineTo(bx, by);
+    //   g.lineStyle(3, color, 0.95);
+    //   g.moveTo(ax, ay); g.lineTo(bx, by);
+    //   g.beginFill(color, 0.95); g.drawCircle(ax, ay, 4); g.drawCircle(bx, by, 4); g.endFill();
+    //   group.addChild(g);
+    // }
     for (const wid of ids) {
       const wall = canvas.walls.get(wid);
       if (!wall) continue;
+
       // Version-agnostic endpoint extraction
       let ax, ay, bx, by;
-      if (wall.A && wall.B) { // v11 style
-        ax = wall.A.x; ay = wall.A.y; bx = wall.B.x; by = wall.B.y;
-      } else if (wall.edge?.a && wall.edge?.b) { // v10 style
-        ax = wall.edge.a.x; ay = wall.edge.a.y; bx = wall.edge.b.x; by = wall.edge.b.y;
-      } else continue;
-  const g = new PIXI.Graphics();
-      g.eventMode = 'passive';
- 
-  let color = COLOR_NORMAL;
 
-  
-  g.lineStyle(5, 0x000000, 0.35);
-  g.moveTo(ax, ay); g.lineTo(bx, by);
-  g.lineStyle(3, color, 0.95);
-  g.moveTo(ax, ay); g.lineTo(bx, by);
-  g.beginFill(color, 0.95); g.drawCircle(ax, ay, 4); g.drawCircle(bx, by, 4); g.endFill();
+      if (wall.edge?.a && wall.edge?.b) {
+        // Foundry V12+ style
+        ax = wall.edge.a.x;
+        ay = wall.edge.a.y;
+        bx = wall.edge.b.x;
+        by = wall.edge.b.y;
+      } else if (wall.A && wall.B) {
+        // Legacy V11 and earlier
+        ax = wall.A.x;
+        ay = wall.A.y;
+        bx = wall.B.x;
+        by = wall.B.y;
+      } else continue;
+
+      const g = new PIXI.Graphics();
+      g.eventMode = "passive";
+
+      const color = COLOR_NORMAL;
+
+      g.lineStyle(5, 0x000000, 0.35);
+      g.moveTo(ax, ay);
+      g.lineTo(bx, by);
+      g.lineStyle(3, color, 0.95);
+      g.moveTo(ax, ay);
+      g.lineTo(bx, by);
+      g.beginFill(color, 0.95);
+      g.drawCircle(ax, ay, 4);
+      g.drawCircle(bx, by, 4);
+      g.endFill();
+
       group.addChild(g);
     }
     if (group.children.length) {
@@ -416,7 +455,7 @@ Hooks.on('updateWall', (wallDoc) => {
       const ids = t.document.getFlag(MODULE_ID, 'linkedWallIds') || [];
       if (ids.includes(wallDoc.id)) drawLinkedWallsOverlay(t);
     }
-  } catch {}
+  } catch { }
 });
 Hooks.on('deleteWall', (wallDoc) => {
   try {
@@ -425,11 +464,11 @@ Hooks.on('deleteWall', (wallDoc) => {
       const ids = t.document.getFlag(MODULE_ID, 'linkedWallIds') || [];
       if (ids.includes(wallDoc.id)) drawLinkedWallsOverlay(t);
     }
-  } catch {}
+  } catch { }
 });
 
 // Extend existing tile control behavior (hook also in register but safe to duplicate listener)
 Hooks.on('controlTile', (tile, controlled) => {
   try { if (controlled) drawLinkedWallsOverlay(tile); else clearLinkedWallsOverlay(tile); }
-  catch {}
+  catch { }
 });
