@@ -9,6 +9,15 @@ let tilesOpacity = 1.0;   // applies to tile sprites (group === 'tiles')
 let tokensOpacity = 1.0;  // applies to token sprites (group === 'tokens')
 let lastControlledToken = null;
 
+// Darkens tiles in the Fog of War
+let fogFilter = new PIXI.filters.ColorMatrixFilter();
+fogFilter.matrix = [
+    1, 0, 0, 0, -0.1,
+    0, 1, 0, 0, -0.1,
+    0, 0, 1, 0, -0.1,
+    0, 0, 0, 1, 0
+];
+
 function clamp01(n) {
     const v = Number(n);
     if (!Number.isFinite(v)) return 1;
@@ -525,7 +534,7 @@ function applyCornerVisibilityCulling(foregroundTileEntries, tokenEntries) {
         if (!viewers.length) viewers = canvas.tokens.placeables.filter(t => t.visible && t.actor?.hasPlayerOwner);
         if (!viewers.length) return; // nothing to compare
         const viewerIds = new Set(viewers.map(v => v.id));
-        const gs = canvas.grid?.size || 1;
+        const gridSize = canvas.grid?.size || 1;
         const testVisibility = (x, y) => {
             try {
                 if (!canvas?.effects?.visibility?.testVisibility) return true; // fallback: do not hide
@@ -600,47 +609,19 @@ function applyCornerVisibilityCulling(foregroundTileEntries, tokenEntries) {
                 }
             }
 
-            // If tile is currently visible
+            
             if (currentlyVisible) {
-                // Update seenBy set of tokensIDs that once saw this tile
                 viewers.forEach(v => entry.sprite.originalTile.seenBy.add(v.id));
-
-                console.log("Tile currently visible:", tile.id);
-                console.log("Seen by tokens:", Array.from(entry.sprite.originalTile.seenBy));
-
-                // Then draw it normally            
                 entry.sprite.visible = true;
-
-                // Reset filter
                 entry.sprite.filters = [];
             }
-            // If  tile is not currently visible
             else {
-                entry.sprite.visible = true;
-
+                const fogExploration = canvas.fog?.fogExploration === true;
                 const intersection = [...entry.sprite.originalTile.seenBy].filter(id => viewerIds.has(id));
 
-                console.log("Tile NOT currently visible:", tile.id);
-                console.log("Seen by tokens:", Array.from(entry.sprite.originalTile.seenBy));
-                console.log("Intersection with current viewers:", intersection);
-
-                //  But was at least once seen specifically by currently viewers,
-                if (intersection.length) {
-                    console.log("Visible = true");
-                    // it is visible as Fog of War draw it darkened
-                    entry.sprite.visible = true;
-
-                    // apply darkening filter
-                    // Make PIXI Sprite darker following Foundry VTT Fog of War darkening
-                    const filter = new PIXI.filters.ColorMatrixFilter();
-                    // To darken:
-                    filter.matrix = [
-                        1, 0, 0, 0, -0.1,
-                        0, 1, 0, 0, -0.1,
-                        0, 0, 1, 0, -0.1,
-                        0, 0, 0, 1, 0
-                    ];
-                    entry.sprite.filters = [filter];
+                if (fogExploration && intersection.length) {
+                    entry.sprite.visible = true;                    
+                    entry.sprite.filters = [fogFilter];
                 }
 
                 // Otherwise it is not seen now nor was it seen before
@@ -659,7 +640,7 @@ function applyCornerVisibilityCulling(foregroundTileEntries, tokenEntries) {
                 entry.sprite.originalTile.seenBy = true;
                 continue;
             }
-            const w = (doc.width || 1) * gs; const h = (doc.height || 1) * gs;
+            const w = (doc.width || 1) * gridSize; const h = (doc.height || 1) * gridSize;
             const visible = testPerimeter(doc.x, doc.y, w, h);
             entry.sprite.visible = visible;
         }
