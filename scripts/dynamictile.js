@@ -65,7 +65,7 @@ function registerMiscHooks() {
 // ---- Hook handlers ----
 function setupContainers() {
     if (foregroundContainer) {
-        try { if (foregroundContainer.parent) foregroundContainer.parent.removeChild(foregroundContainer); foregroundContainer.destroy({ children: true }); } catch {}
+        try { if (foregroundContainer.parent) foregroundContainer.parent.removeChild(foregroundContainer); foregroundContainer.destroy({ children: true }); } catch { }
     }
     foregroundContainer = new PIXI.Container();
     foregroundContainer.name = 'IsoForeground';
@@ -77,7 +77,7 @@ function setupContainers() {
 
 function teardownContainers() {
     if (foregroundContainer) {
-        try { if (foregroundContainer.parent) foregroundContainer.parent.removeChild(foregroundContainer); foregroundContainer.destroy({ children: true }); } catch {}
+        try { if (foregroundContainer.parent) foregroundContainer.parent.removeChild(foregroundContainer); foregroundContainer.destroy({ children: true }); } catch { }
     }
     foregroundContainer = null;
 }
@@ -110,9 +110,9 @@ function migrateLegacyIsoLayerFlags() {
 }
 
 function initializeNewTileFlags(tile) {
-    try { if (!tile.getFlag(MODULE_ID, 'isoLayer')) tile.setFlag(MODULE_ID, 'isoLayer', 'foreground'); } catch {}
-    try { tile.setFlag(MODULE_ID, 'linkedWallIds', []); } catch {}
-    try { tile.setFlag(MODULE_ID, 'OcclusionAlpha', 1); } catch {}
+    try { if (!tile.getFlag(MODULE_ID, 'isoLayer')) tile.setFlag(MODULE_ID, 'isoLayer', 'foreground'); } catch { }
+    try { tile.setFlag(MODULE_ID, 'linkedWallIds', []); } catch { }
+    try { tile.setFlag(MODULE_ID, 'OcclusionAlpha', 1); } catch { }
 }
 
 async function handleTileUpdate(tileDocument, change) {
@@ -132,7 +132,7 @@ async function handleTileUpdate(tileDocument, change) {
                 await tileDocument.setFlag(MODULE_ID, 'isoLayer', v);
             }
         }
-    } catch {}
+    } catch { }
     updateAlwaysVisibleElements();
 }
 
@@ -197,7 +197,7 @@ function updateLayerOpacity(layer) {
                     const perFlag = tdoc.getFlag(MODULE_ID, 'OpacityOnOccluding');
                     if (perFlag !== undefined) alpha = alpha * clamp01(perFlag);
                 }
-            } catch {}
+            } catch { }
         }
         sprite.alpha = alpha;
     });
@@ -248,7 +248,7 @@ function cloneTileSprite(tilePlaceable) {
     sprite.position.set(mesh.position.x, mesh.position.y);
     sprite.anchor.set(mesh.anchor.x, mesh.anchor.y);
     sprite.angle = mesh.angle;
-    try { sprite.rotation = mesh.rotation; if (mesh.skew) sprite.skew.set(mesh.skew.x, mesh.skew.y); } catch {}
+    try { sprite.rotation = mesh.rotation; if (mesh.skew) sprite.skew.set(mesh.skew.x, mesh.skew.y); } catch { }
     try { sprite.scale.set(mesh.scale.x, mesh.scale.y); } catch { sprite.scale.set(1, 1); }
     const tileDocAlpha = typeof tilePlaceable?.document?.alpha === 'number' ? tilePlaceable.document.alpha : 1;
     sprite.baseAlpha = tileDocAlpha; // store document alpha only
@@ -256,7 +256,13 @@ function cloneTileSprite(tilePlaceable) {
     sprite.opacityGroup = 'tiles';
     sprite.eventMode = 'passive';
     sprite.originalTile = tilePlaceable;
-    sprite._isoVisibility = true;
+
+    // Set of token IDs that have seen this tile
+    // If the original tile was never seen before use a new set
+    if (!sprite.originalTile.seenBy) {
+        sprite.originalTile.seenBy = new Set();
+    }
+
     return sprite;
 }
 
@@ -272,7 +278,7 @@ function cloneTokenSprite(token) {
         sprite.position.set(mesh.position.x, mesh.position.y);
         sprite.anchor.set(mesh.anchor?.x ?? 0.5, mesh.anchor?.y ?? 0.5);
         sprite.angle = mesh.angle ?? token.angle ?? 0;
-        try { sprite.rotation = mesh.rotation; if (mesh.skew) sprite.skew.set(mesh.skew.x, mesh.skew.y); } catch {}
+        try { sprite.rotation = mesh.rotation; if (mesh.skew) sprite.skew.set(mesh.skew.x, mesh.skew.y); } catch { }
         try { sprite.scale.set(mesh.scale.x, mesh.scale.y); } catch { sprite.scale.set(1, 1); }
         const tokenAlpha = typeof token.alpha === 'number' ? token.alpha : 1;
         sprite.baseAlpha = tokenAlpha;
@@ -280,10 +286,9 @@ function cloneTokenSprite(token) {
         sprite.opacityGroup = 'tokens';
         sprite.eventMode = 'passive';
         sprite.originalToken = token;
-    sprite._isoVisibility = true;
-    // Mirror Foundry visibility (covers hidden, vision-based, permission-based). If token.visible is false, hide clone.
-    try { sprite.visible = !!token.visible; } catch { sprite.visible = true; }
-        try { token.mesh.alpha = 0; } catch {}
+        // Mirror Foundry visibility (covers hidden, vision-based, permission-based). If token.visible is false, hide clone.
+        try { sprite.visible = !!token.visible; } catch { sprite.visible = true; }
+        try { token.mesh.alpha = 0; } catch { }
         return sprite;
     } catch (e) {
         if (DEBUG_PRINT) console.warn('cloneTokenSprite failed', e);
@@ -316,21 +321,21 @@ function collectTileEntries() {
                     if (isDoor && isOpen) { hideForOpenDoor = true; break; }
                 }
             }
-        } catch {}
+        } catch { }
         if (layer === 'background') {
             try {
                 const baseAlpha = (typeof tile.document.alpha === 'number') ? tile.document.alpha : 1;
                 tile.mesh.alpha = hideForOpenDoor ? 0 : baseAlpha;
-            } catch {}
+            } catch { }
             if (!hideForOpenDoor) backgroundTileDocs.push(tile); // if hidden we omit from debug ordering of background
         } else {
             if (hideForOpenDoor) {
-                try { tile.mesh.alpha = 0; } catch {}
+                try { tile.mesh.alpha = 0; } catch { }
                 continue; // skip cloning entirely while hidden
             }
             const clone = cloneTileSprite(tile);
             if (!clone) continue;
-            try { tile.mesh.alpha = 0; } catch {}
+            try { tile.mesh.alpha = 0; } catch { }
             foregroundTileEntries.push({ sort, sprite: clone, tile });
         }
     }
@@ -344,7 +349,7 @@ function assignTileDepths(foregroundTileEntries) {
         bySort.get(tile.sort).push(tile);
     }
     for (const [sortValue, arr] of bySort.entries()) {
-        arr.sort((a,b)=> {
+        arr.sort((a, b) => {
             const ay = a.tile.document.y + a.tile.document.height;
             const by = b.tile.document.y + b.tile.document.height;
             if (ay !== by) return ay - by;
@@ -423,7 +428,7 @@ function refineTokenOrdering(tokenEntries, tokenDepthMap) {
 
 function renderForeground(foregroundTileEntries, tokenEntries) {
     const foregroundElements = [...foregroundTileEntries, ...tokenEntries];
-    foregroundElements.sort((a,b)=> a.depth - b.depth);
+    foregroundElements.sort((a, b) => a.depth - b.depth);
     for (const element of foregroundElements) {
         element.sprite.zIndex = element.depth;
         foregroundContainer.addChild(element.sprite);
@@ -494,23 +499,23 @@ function applyCornerVisibilityCulling(foregroundTileEntries, tokenEntries) {
     try {
         if (!game.settings.get(MODULE_ID, 'enableCornerVisibilityCulling')) return;
         // Gather viewer tokens (controlled or owned & visible)
-        let viewers = canvas.tokens.controlled.filter(t=>t.visible);
-        if (!viewers.length) viewers = canvas.tokens.placeables.filter(t=> t.visible && t.actor?.hasPlayerOwner);
+        let viewers = canvas.tokens.controlled.filter(t => t.visible);
+        if (!viewers.length) viewers = canvas.tokens.placeables.filter(t => t.visible && t.actor?.hasPlayerOwner);
         if (!viewers.length) return; // nothing to compare
-        const viewerIds = new Set(viewers.map(v=>v.id));
+        const viewerIds = new Set(viewers.map(v => v.id));
         const gs = canvas.grid?.size || 1;
-        const testVisibility = (x,y) => {
+        const testVisibility = (x, y) => {
             try {
                 if (!canvas?.effects?.visibility?.testVisibility) return true; // fallback: do not hide
                 for (const v of viewers) {
-                    if (canvas.effects.visibility.testVisibility({x,y},{object:v})) return true;
+                    if (canvas.effects.visibility.testVisibility({ x, y }, { object: v })) return true;
                 }
             } catch { return true; }
             return false;
         };
         // Sample points along the perimeter
-        const testPerimeter = (x,y,w,h) => {
-            
+        const testPerimeter = (x, y, w, h) => {
+
             // Grab the grid size
             const gridSize = canvas.grid?.size || 1;
 
@@ -519,16 +524,16 @@ function applyCornerVisibilityCulling(foregroundTileEntries, tokenEntries) {
             for (let i = 0; i <= w; i += gridSize) pts.push([x + i, y + h]);
             for (let j = 0; j <= h; j += gridSize) pts.push([x, y + j]);
             for (let j = 0; j <= h; j += gridSize) pts.push([x + w, y + j]);
-            
+
             // const pts = [
             //     [x, y],[x+w, y],[x, y+h],[x+w, y+h]
             // ];
 
-            for (const [px,py] of pts) if (testVisibility(px+0.001, py+0.001)) return true;
+            for (const [px, py] of pts) if (testVisibility(px + 0.001, py + 0.001)) return true;
             return false;
         };
         // Sample points along the line
-        const testLine = (x1,y1,x2,y2) => {
+        const testLine = (x1, y1, x2, y2) => {
 
             // Grab the grid size
             const gridSize = canvas.grid?.size || 1;
@@ -544,24 +549,22 @@ function applyCornerVisibilityCulling(foregroundTileEntries, tokenEntries) {
                 pts.push([x, y]);
             }
 
-            for (const [px,py] of pts) if (testVisibility(px+0.001, py+0.001)) return true;
+            for (const [px, py] of pts) if (testVisibility(px + 0.001, py + 0.001)) return true;
             return false;
         };
 
         // Cull tiles (foreground clones only)
         for (const entry of foregroundTileEntries) {
+
             // Test tile's visibility based on its perimeter
-            const tile = entry.tile; 
+            const tile = entry.tile;
             const doc = tile.document;
-            const visible = testPerimeter(doc.x, doc.y, doc.width, doc.height);
+            let currentlyVisible = testPerimeter(doc.x, doc.y, doc.width, doc.height);
 
             // Test tile's visibility based on its walls vertices
-            if (!visible) {
+            if (!currentlyVisible) {
                 const walls = getLinkedWalls(tile);
                 for (const wall of walls) {
-
-                    // Print wall values
-                    console.log("Wall:", wall);
                     const x1 = wall.document.c[0];
                     const y1 = wall.document.c[1];
                     const x2 = wall.document.c[2];
@@ -569,24 +572,74 @@ function applyCornerVisibilityCulling(foregroundTileEntries, tokenEntries) {
 
                     const wallVisible = testLine(x1, y1, x2, y2);
                     if (wallVisible) {
-                        visible = true;
+                        currentlyVisible = true;
                         break;
                     }
                 }
             }
 
-            // Update visibility
-            entry.sprite.visible = visible;
-            entry.sprite._isoVisibility = visible;
+            // If tile is currently visible
+            if (currentlyVisible) {
+                // Update seenBy set of tokensIDs that once saw this tile
+                viewers.forEach(v => entry.sprite.originalTile.seenBy.add(v.id));
+
+                console.log("Tile currently visible:", tile.id);
+                console.log("Seen by tokens:", Array.from(entry.sprite.originalTile.seenBy));
+
+                // Then draw it normally            
+                entry.sprite.visible = true;
+
+                // Reset filter
+                entry.sprite.filters = [];
+            }
+            // If  tile is not currently visible
+            else {
+                entry.sprite.visible = true;
+
+                const intersection = [...entry.sprite.originalTile.seenBy].filter(id => viewerIds.has(id));
+
+                console.log("Tile NOT currently visible:", tile.id);
+                console.log("Seen by tokens:", Array.from(entry.sprite.originalTile.seenBy));
+                console.log("Intersection with current viewers:", intersection);
+
+                //  But was at least once seen specifically by currently viewers,
+                if (intersection.length) {
+                    console.log("Visible = true");
+                    // it is visible as Fog of War draw it darkened
+                    entry.sprite.visible = true;
+
+                    // apply darkening filter
+                    // Make PIXI Sprite darker following Foundry VTT Fog of War darkening
+                    const filter = new PIXI.filters.ColorMatrixFilter();
+                    // To darken:
+                    filter.matrix = [
+                        1, 0, 0, 0, -0.1,
+                        0, 1, 0, 0, -0.1,
+                        0, 0, 1, 0, -0.1,
+                        0, 0, 0, 1, 0
+                    ];
+                    entry.sprite.filters = [filter];
+                }
+
+                // Otherwise it is not seen now nor was it seen before
+                else {
+                    console.log("Visible = false");
+                    entry.sprite.visible = false;
+                }
+            }
         }
+
         // Cull token clones unless they are viewer tokens themselves (always visible)
         for (const entry of tokenEntries) {
             const token = entry.token; const doc = token.document;
-            if (viewerIds.has(token.id)) { entry.sprite.visible = true; entry.sprite._isoVisibility = true; continue; }
-            const w = (doc.width||1)*gs; const h=(doc.height||1)*gs;
+            if (viewerIds.has(token.id)) {
+                entry.sprite.visible = true;
+                entry.sprite.originalTile.seenBy = true;
+                continue;
+            }
+            const w = (doc.width || 1) * gs; const h = (doc.height || 1) * gs;
             const visible = testPerimeter(doc.x, doc.y, w, h);
             entry.sprite.visible = visible;
-            entry.sprite._isoVisibility = visible;
         }
     } catch (e) { if (DEBUG_PRINT) console.warn('applyCornerVisibilityCulling failed', e); }
 }
