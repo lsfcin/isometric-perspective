@@ -67,7 +67,6 @@ function registerMiscHooks() {
     Hooks.on('deleteWall', () => updateAlwaysVisibleElements());
 }
 
-// Add a hook for Fog of War reset
 function registerFogOfWarHooks() {
     Hooks.once('ready', () => {
         const fog = canvas?.fog;
@@ -80,7 +79,6 @@ function registerFogOfWarHooks() {
         }
     });
 
-    // If fog reset was detected, remove all seenBy flags
     Hooks.on('resetFogOfWar', (fogManager, ...args) => {
         for (const tile of canvas.tiles.placeables) {
             tile.seenBy = new Set();
@@ -94,7 +92,7 @@ function setupContainers() {
         try { if (foreground.parent) foreground.parent.removeChild(foreground); foreground.destroy({ children: true }); } catch { }
     }
     foreground = new PIXI.Container();
-    foreground.name = 'IsoForeground';
+    foreground.name = 'Isometric Foreground';
     foreground.sortableChildren = true;
     foreground.eventMode = 'passive';
     // Place above native tiles but (ideally) below tokens original layer; since we hide originals, exact order is less critical
@@ -521,9 +519,9 @@ function applyVisibilityCulling(foregroundTileEntries, tokenEntries) {
         
         const testVisibility = (x, y) => {
             try {
-                if (!canvas?.effects?.visibility?.testVisibility) return true; // fallback: do not hide
+                if (!canvas?.visibility?.testVisibility) return true; // fallback: do not hide
                 for (const v of viewers) {
-                    if (canvas.effects.visibility.testVisibility({ x, y }, { object: v })) return true;
+                    if (canvas.visibility?.testVisibility({ x, y }, { object: v })) return true;
                 }
             } catch { return true; }
             return false;
@@ -609,7 +607,6 @@ function applyVisibilityCulling(foregroundTileEntries, tokenEntries) {
                 }
                 else 
                 {
-                    console.log("Visible = false");
                     entry.sprite.visible = false;
                 }
             }
@@ -620,7 +617,6 @@ function applyVisibilityCulling(foregroundTileEntries, tokenEntries) {
             const token = entry.token; const doc = token.document;
             if (viewerIds.has(token.id)) {
                 entry.sprite.visible = true;
-                entry.sprite.originalTile.seenBy = true;
                 continue;
             }
             const w = (doc.width || 1) * gridSize; const h = (doc.height || 1) * gridSize;

@@ -236,16 +236,12 @@ function handleUpdateToken(tokenDocument, updateData, options, userId) {
   
   const isSceneIsometric = token.scene.getFlag(MODULE_ID, "isometricEnabled");
   applyIsometricTransformation(token, isSceneIsometric);
-
-  if (DEBUG_PRINT) console.log("Hooks.on token.js updateToken");
 }
 
 // Hooks.on("refreshToken")
 function handleRefreshToken(token) {
   const isSceneIsometric = token.scene.getFlag(MODULE_ID, "isometricEnabled");
   applyIsometricTransformation(token, isSceneIsometric);
-  
-  if (DEBUG_PRINT) console.log("Hooks.on token.js refreshToken");
 }
 
 // Hooks.on("deleteToken")
