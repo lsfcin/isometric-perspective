@@ -15,12 +15,25 @@ fogFilter.matrix = [
     0, 0, 0, 1, 0
 ];
 
+// --- Helper functions ---
 function clamp01(n) {
     const v = Number(n);
     if (!Number.isFinite(v)) return 1;
     return Math.max(0, Math.min(1, v));
 }
 
+function getSeenBy(tile) {
+    return new Set(tile.document.getFlag(MODULE_ID, 'seenBy') || []);
+}
+
+async function markSeenBy(tile, viewers) {
+    const tileDoc = tile.document;
+    let seenBy = getSeenBy(tile);
+    viewers.forEach(v => seenBy.add(v.id));
+    await tileDoc.setFlag(MODULE_ID, 'seenBy', Array.from(seenBy));
+}
+
+// --- Hooks ---
 export function registerDynamicTileConfig() {
     if (!shouldEnableDynamicTiles()) return;
     registerLifecycleHooks();
@@ -83,7 +96,8 @@ function registerFogOfWarHooks() {
 
     Hooks.on('resetFogOfWar', (fogManager, ...args) => {
         for (const tile of canvas.tiles.placeables) {
-            tile.seenBy = new Set();
+            //tile.seenBy = new Set();
+            tile.document.setFlag(MODULE_ID, 'seenBy', []);
         }
     });
 }
@@ -120,6 +134,7 @@ function migrateLegacyIsoLayerFlags() {
             updates.push({ _id: tileDoc.id, [`flags.${MODULE_ID}.isoLayer`]: layer });
         }
         if (updates.length) canvas.scene.updateEmbeddedDocuments('Tile', updates);
+
         // Migrate legacy OcclusionAlpha -> OpacityOnOccluding if new flag absent
         const opMigrations = [];
         for (const tile of canvas.tiles.placeables) {
@@ -137,6 +152,7 @@ function migrateLegacyIsoLayerFlags() {
 
 function initializeNewTileFlags(tile) {
     try { if (!tile.getFlag(MODULE_ID, 'isoLayer')) tile.setFlag(MODULE_ID, 'isoLayer', 'foreground'); } catch { }
+    try { tile.setFlag(MODULE_ID, 'seenBy', []); } catch { }
     try { tile.setFlag(MODULE_ID, 'linkedWallIds', []); } catch { }
     try { tile.setFlag(MODULE_ID, 'OcclusionAlpha', 1); } catch { }
 }
@@ -452,8 +468,9 @@ function buildDebugPlan(foregroundTileEntries, backgroundTileDocs, tokenDepthMap
             if (!token || !token.visible) continue;
             const { gx, gy } = getTokenGridXY(token);
             const tokenDoc = token.document;
-            const w = (Number(tokenDoc.width) || 1) * (canvas.grid?.size || 1);
-            const h = (Number(tokenDoc.height) || 1) * (canvas.grid?.size || 1);
+            const gridSize = canvas.grid?.size || 1;
+            const w = (Number(tokenDoc.width) || 1) * gridSize;
+            const h = (Number(tokenDoc.height) || 1) * gridSize;
             const px = Number(tokenDoc.x) + w * 0.5;
             const py = Number(tokenDoc.y) + h;
             const depth = tokenDepthMap.get(token.id);
@@ -481,16 +498,16 @@ function updateAlwaysVisibleElements() {
 function applyVisibilityCulling(foregroundTileEntries, tokenEntries) {
     try {
         if (!game.settings.get(MODULE_ID, 'enableCornerVisibilityCulling')) return;
-        
+
         // Gather viewer tokens (controlled or owned & visible)
         let viewers = canvas.tokens.controlled.filter(t => t.visible);
-        
+
         if (!viewers.length) viewers = canvas.tokens.placeables.filter(t => t.visible && t.actor?.hasPlayerOwner);
         if (!viewers.length) return; // nothing to compare
-        
+
         const viewerIds = new Set(viewers.map(v => v.id));
         const gridSize = canvas.grid?.size || 1;
-        
+
         const testVisibility = (x, y) => {
             try {
                 if (!canvas?.visibility?.testVisibility) return true; // fallback: do not hide
@@ -562,30 +579,28 @@ function applyVisibilityCulling(foregroundTileEntries, tokenEntries) {
                     }
                 }
             }
-            
-            if (currentlyVisible) 
-            {
-                viewers.forEach(v => entry.sprite.originalTile.seenBy.add(v.id));
+
+            if (currentlyVisible) {
+                markSeenBy(tile, viewers);
+                viewers.forEach(v => tile.seenBy.add(v.id));
                 entry.sprite.visible = true;
                 entry.sprite.filters = [];
             }
-            else 
-            {
+            else {
                 const fogExploration = canvas.fog?.fogExploration === true;
 
-                
+                let seenBy = getSeenBy(tile);
+
                 // If we want a fog exploration shared by all tokens
                 //if (fogExploration && entry.sprite.originalTile.seenBy.size) 
-                
+
                 // If we want a per-token fog exploration
-                const intersection = [...entry.sprite.originalTile.seenBy].filter(id => viewerIds.has(id));
-                if (fogExploration && intersection.length) 
-                {
-                    entry.sprite.visible = true;                    
+                const intersection = seenBy.filter(id => viewerIds.has(id));
+                if (fogExploration && intersection.size) {
+                    entry.sprite.visible = true;
                     entry.sprite.filters = [fogFilter];
                 }
-                else 
-                {
+                else {
                     entry.sprite.visible = false;
                 }
             }
@@ -605,8 +620,6 @@ function applyVisibilityCulling(foregroundTileEntries, tokenEntries) {
     } catch (e) { if (DEBUG_PRINT) console.warn('applyCornerVisibilityCulling failed', e); }
 }
 
-// addDebugOverlays & ensureWallIdsArray moved to overlay.js and tile.js respectively
-
 function getLinkedWalls(tile) {
     if (!tile || !tile.document) return [];
     const linkedWallIds = ensureWallIdsArray(tile.document.getFlag(MODULE_ID, 'linkedWallIds'));
@@ -616,22 +629,22 @@ function getLinkedWalls(tile) {
 // Grid helpers and rule: a token (gx, gy) is occluded by a tile whose bottom-corner grid is (tx, ty)
 // iff gx > tx AND gy > ty. We use gx+gy as a depth index for token z ordering.
 function getTokenGridXY(token) {
-    const gs = canvas.grid?.size || 1;
+    const gridSize = canvas.grid?.size || 1;
     // Use token.center as reference for grid position
-    const gx = Math.floor(token.center.x / gs);
-    const gy = Math.floor(token.center.y / gs);
+    const gx = Math.floor(token.center.x / gridSize);
+    const gy = Math.floor(token.center.y / gridSize);
     return { gx, gy };
 }
 
 function getTileBottomCornerGridXY(tile) {
-    const gs = canvas.grid?.size || 1;
+    const gridSize = canvas.grid?.size || 1;
     // Bottom-left in top-down corresponds to bottom corner in isometric tile art
     // Use the tile bottom-left in scene coordinates: (x, y + height)
     const x = tile.document.x;
     // Subtract a tiny epsilon so a tile whose bottom edge lies exactly on a grid line
     // is classified into the cell above, matching token centers standing on it.
     const yBottomEdge = tile.document.y + tile.document.height - 0.0001;
-    const gx = Math.floor(x / gs);
-    const gy = Math.floor(yBottomEdge / gs);
+    const gx = Math.floor(x / gridSize);
+    const gy = Math.floor(yBottomEdge / gridSize);
     return { gx, gy };
 }
