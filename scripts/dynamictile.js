@@ -2,14 +2,9 @@ import { MODULE_ID, DEBUG_PRINT, FOUNDRY_VERSION } from './main.js';
 import { ensureWallIdsArray } from './tile.js';
 import { addDebugOverlays } from './overlay.js';
 
-// Module state (refactored two-layer system)
-// Background tiles now use their native Foundry rendering (no cloning / no custom container)
-let foregroundContainer;   // combined foreground tiles + token clones (interwoven ordering)
-let tilesOpacity = 1.0;   // applies to tile sprites (group === 'tiles')
-let tokensOpacity = 1.0;  // applies to token sprites (group === 'tokens')
+let foreground;          // combined foreground tiles + token clones (interwoven ordering)
 let lastControlledToken = null;
 
-// Darkens tiles in the Fog of War
 let fogFilter = new PIXI.filters.ColorMatrixFilter();
 fogFilter.matrix = [
     1, 0, 0, 0, -0.1,
@@ -95,22 +90,22 @@ function registerFogOfWarHooks() {
 
 // ---- Hook handlers ----
 function setupContainers() {
-    if (foregroundContainer) {
-        try { if (foregroundContainer.parent) foregroundContainer.parent.removeChild(foregroundContainer); foregroundContainer.destroy({ children: true }); } catch { }
+    if (foreground) {
+        try { if (foreground.parent) foreground.parent.removeChild(foreground); foreground.destroy({ children: true }); } catch { }
     }
-    foregroundContainer = new PIXI.Container();
-    foregroundContainer.name = 'IsoForeground';
-    foregroundContainer.sortableChildren = true;
-    foregroundContainer.eventMode = 'passive';
+    foreground = new PIXI.Container();
+    foreground.name = 'IsoForeground';
+    foreground.sortableChildren = true;
+    foreground.eventMode = 'passive';
     // Place above native tiles but (ideally) below tokens original layer; since we hide originals, exact order is less critical
-    canvas.stage.addChild(foregroundContainer);
+    canvas.stage.addChild(foreground);
 }
 
 function teardownContainers() {
-    if (foregroundContainer) {
-        try { if (foregroundContainer.parent) foregroundContainer.parent.removeChild(foregroundContainer); foregroundContainer.destroy({ children: true }); } catch { }
+    if (foreground) {
+        try { if (foreground.parent) foreground.parent.removeChild(foreground); foreground.destroy({ children: true }); } catch { }
     }
-    foregroundContainer = null;
+    foreground = null;
 }
 
 function migrateLegacyIsoLayerFlags() {
@@ -175,7 +170,7 @@ function handleControlToken(token, controlled) {
     }
     updateAlwaysVisibleElements();
     // After rebuild, reapply per-token opacity (already done inside updateLayerOpacity, but ensure immediate)
-    updateLayerOpacity(foregroundContainer);
+    updateLayerOpacity(foreground);
 }
 
 function handleUpdateToken(tokenDocument) {
@@ -183,7 +178,7 @@ function handleUpdateToken(tokenDocument) {
         lastControlledToken = canvas.tokens.get(tokenDocument.id);
     }
     updateAlwaysVisibleElements();
-    updateLayerOpacity(foregroundContainer);
+    updateLayerOpacity(foreground);
 }
 
 function handleDeleteToken(token) {
@@ -212,8 +207,8 @@ function updateLayerOpacity(layer) {
     layer.children.forEach(sprite => {
         const base = typeof sprite.baseAlpha === 'number' ? sprite.baseAlpha : sprite.alpha ?? 1;
         const group = sprite.opacityGroup === 'tokens' ? 'tokens' : 'tiles';
-        const mul = group === 'tiles' ? tilesOpacity : tokensOpacity;
-        let alpha = base * mul;
+        //const mul = group === 'tiles' ? tilesOpacity : tokensOpacity;
+        let alpha = base;// * mul;
         // Apply per-token occluding opacity if any viewpoint token exists (union rule)
         if (group === 'tiles' && tokenPositions.length && sprite.originalTile) {
             try {
@@ -234,11 +229,11 @@ function updateLayerOpacity(layer) {
     });
 }
 
-export function updateTilesOpacity(value) {
-    tilesOpacity = Math.max(0, Math.min(1, value));
-    // Only affects cloned foreground tiles; native background tiles keep their document alpha
-    updateLayerOpacity(foregroundContainer);
-}
+// export function updateTilesOpacity(value) {
+//     tilesOpacity = Math.max(0, Math.min(1, value));
+//     // Only affects cloned foreground tiles; native background tiles keep their document alpha
+//     updateLayerOpacity(foreground);
+// }
 
 // Instead of adjusting a global tiles opacity, adjust the OcclusionAlpha per selected tile
 async function adjustSelectedTilesOcclusionAlpha(delta = 0.1) {
@@ -256,21 +251,6 @@ async function adjustSelectedTilesOcclusionAlpha(delta = 0.1) {
         if (updates.length) await canvas.scene.updateEmbeddedDocuments('Tile', updates);
     } catch (e) { if (DEBUG_PRINT) console.warn('adjustSelectedTilesOcclusionAlpha failed', e); }
 }
-export function increaseTilesOpacity() { adjustSelectedTilesOcclusionAlpha(+0.1); }
-export function decreaseTilesOpacity() { adjustSelectedTilesOcclusionAlpha(-0.1); }
-
-export function resetOpacity() {
-    tilesOpacity = 1.0;
-    tokensOpacity = 1.0;
-    updateLayerOpacity(foregroundContainer);
-}
-
-export function updateTokensOpacity(value) {
-    tokensOpacity = Math.max(0, Math.min(1, value));
-    updateLayerOpacity(foregroundContainer);
-}
-export function increaseTokensOpacity() { updateTokensOpacity(tokensOpacity + 0.1); }
-export function decreaseTokensOpacity() { updateTokensOpacity(tokensOpacity - 0.1); }
 
 function cloneTileSprite(tilePlaceable) {
     const mesh = tilePlaceable?.mesh;
@@ -283,7 +263,7 @@ function cloneTileSprite(tilePlaceable) {
     try { sprite.scale.set(mesh.scale.x, mesh.scale.y); } catch { sprite.scale.set(1, 1); }
     const tileDocAlpha = typeof tilePlaceable?.document?.alpha === 'number' ? tilePlaceable.document.alpha : 1;
     sprite.baseAlpha = tileDocAlpha; // store document alpha only
-    sprite.alpha = tileDocAlpha * tilesOpacity; // initial composite; may be reduced per view token later
+    sprite.alpha = tileDocAlpha; // * tilesOpacity; // initial composite; may be reduced per view token later
     sprite.opacityGroup = 'tiles';
     sprite.eventMode = 'passive';
     sprite.originalTile = tilePlaceable;
@@ -313,7 +293,7 @@ function cloneTokenSprite(token) {
         try { sprite.scale.set(mesh.scale.x, mesh.scale.y); } catch { sprite.scale.set(1, 1); }
         const tokenAlpha = typeof token.alpha === 'number' ? token.alpha : 1;
         sprite.baseAlpha = tokenAlpha;
-        sprite.alpha = tokenAlpha * tokensOpacity;
+        sprite.alpha = tokenAlpha;// * tokensOpacity;
         sprite.opacityGroup = 'tokens';
         sprite.eventMode = 'passive';
         sprite.originalToken = token;
@@ -462,7 +442,7 @@ function renderForeground(foregroundTileEntries, tokenEntries) {
     foregroundElements.sort((a, b) => a.depth - b.depth);
     for (const element of foregroundElements) {
         element.sprite.zIndex = element.depth;
-        foregroundContainer.addChild(element.sprite);
+        foreground.addChild(element.sprite);
     }
 }
 
@@ -512,29 +492,33 @@ function buildDebugPlan(foregroundTileEntries, backgroundTileDocs, tokenDepthMap
 }
 
 function updateAlwaysVisibleElements() {
-    if (!canvas.ready || !foregroundContainer) return;
-    foregroundContainer.removeChildren();
+    if (!canvas.ready || !foreground) return;
+    foreground.removeChildren();
     const { backgroundTileDocs, foregroundTileEntries } = collectTileEntries();
     assignTileDepths(foregroundTileEntries);
     const { tokenEntries, tokenDepthMap } = computeTokenEntries(foregroundTileEntries);
     refineTokenOrdering(tokenEntries, tokenDepthMap);
     renderForeground(foregroundTileEntries, tokenEntries);
-    applyCornerVisibilityCulling(foregroundTileEntries, tokenEntries);
-    updateLayerOpacity(foregroundContainer);
+    applyVisibilityCulling(foregroundTileEntries, tokenEntries);
+    updateLayerOpacity(foreground);
     buildDebugPlan(foregroundTileEntries, backgroundTileDocs, tokenDepthMap);
 }
 
 // Corner-based visibility culling: hide cloned foreground tiles and token clones if none of their corners
 // are in LOS of any player-observed token (or controlled tokens). Applies only if setting enabled.
-function applyCornerVisibilityCulling(foregroundTileEntries, tokenEntries) {
+function applyVisibilityCulling(foregroundTileEntries, tokenEntries) {
     try {
         if (!game.settings.get(MODULE_ID, 'enableCornerVisibilityCulling')) return;
+        
         // Gather viewer tokens (controlled or owned & visible)
         let viewers = canvas.tokens.controlled.filter(t => t.visible);
+        
         if (!viewers.length) viewers = canvas.tokens.placeables.filter(t => t.visible && t.actor?.hasPlayerOwner);
         if (!viewers.length) return; // nothing to compare
+        
         const viewerIds = new Set(viewers.map(v => v.id));
         const gridSize = canvas.grid?.size || 1;
+        
         const testVisibility = (x, y) => {
             try {
                 if (!canvas?.effects?.visibility?.testVisibility) return true; // fallback: do not hide
@@ -544,7 +528,6 @@ function applyCornerVisibilityCulling(foregroundTileEntries, tokenEntries) {
             } catch { return true; }
             return false;
         };
-        // Sample points along the perimeter
         const testPerimeter = (x, y, w, h) => {
 
             // Grab the grid size
@@ -563,7 +546,6 @@ function applyCornerVisibilityCulling(foregroundTileEntries, tokenEntries) {
             for (const [px, py] of pts) if (testVisibility(px + 0.001, py + 0.001)) return true;
             return false;
         };
-        // Sample points along the line
         const testLine = (x1, y1, x2, y2) => {
 
             // Grab the grid size
@@ -589,8 +571,8 @@ function applyCornerVisibilityCulling(foregroundTileEntries, tokenEntries) {
 
             // Test tile's visibility based on its perimeter
             const tile = entry.tile;
-            const doc = tile.document;
-            let currentlyVisible = testPerimeter(doc.x, doc.y, doc.width, doc.height);
+            const tileDoc = tile.document;
+            let currentlyVisible = testPerimeter(tileDoc.x, tileDoc.y, tileDoc.width, tileDoc.height);
 
             // Test tile's visibility based on its walls vertices
             if (!currentlyVisible) {
@@ -608,24 +590,25 @@ function applyCornerVisibilityCulling(foregroundTileEntries, tokenEntries) {
                     }
                 }
             }
-
             
-            if (currentlyVisible) {
+            if (currentlyVisible) 
+            {
                 viewers.forEach(v => entry.sprite.originalTile.seenBy.add(v.id));
                 entry.sprite.visible = true;
                 entry.sprite.filters = [];
             }
-            else {
+            else 
+            {
                 const fogExploration = canvas.fog?.fogExploration === true;
                 const intersection = [...entry.sprite.originalTile.seenBy].filter(id => viewerIds.has(id));
 
-                if (fogExploration && intersection.length) {
+                if (fogExploration && intersection.length) 
+                {
                     entry.sprite.visible = true;                    
                     entry.sprite.filters = [fogFilter];
                 }
-
-                // Otherwise it is not seen now nor was it seen before
-                else {
+                else 
+                {
                     console.log("Visible = false");
                     entry.sprite.visible = false;
                 }

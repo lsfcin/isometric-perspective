@@ -3,7 +3,7 @@ import { registerTokenConfig } from './token.js';
 import { registerTileConfig } from './tile.js';
 import { registerHUDConfig } from './hud.js';
 import { registerSortingConfig } from './autosorting.js';
-import { registerDynamicTileConfig, increaseTilesOpacity, decreaseTilesOpacity } from './dynamictile.js';
+import { registerDynamicTileConfig } from './dynamictile.js';
 import { applyIsometricPerspective, applyBackgroundTransformation } from './transform.js';
 import { ISOMETRIC_CONST } from './consts.js';
 import { isoToCartesian, cartesianToIso } from './utils.js';
@@ -130,33 +130,33 @@ Hooks.once("init", function() {
   });
 
   // Module keybindings
-  game.keybindings.register(MODULE_ID, 'increaseTilesOpacity', {
-  name: game.i18n.localize('isometric-perspective.keybindings_increase_tile_opacity'),
-  hint: game.i18n.localize('isometric-perspective.keybindings_increase_tile_opacity_hint'),
-    editable: [
-        { key: 'NumpadAdd', modifiers: ['Control'] }
-    ],
-    onDown: () => {
-        increaseTilesOpacity();
-    },
-    restricted: false,
-    reservedModifiers: [],
-    precedence: CONST.KEYBINDING_PRECEDENCE.NORMAL
-  });
+  // game.keybindings.register(MODULE_ID, 'increaseTilesOpacity', {
+  // name: game.i18n.localize('isometric-perspective.keybindings_increase_tile_opacity'),
+  // hint: game.i18n.localize('isometric-perspective.keybindings_increase_tile_opacity_hint'),
+  //   editable: [
+  //       { key: 'NumpadAdd', modifiers: ['Control'] }
+  //   ],
+  //   onDown: () => {
+  //       increaseTilesOpacity();
+  //   },
+  //   restricted: false,
+  //   reservedModifiers: [],
+  //   precedence: CONST.KEYBINDING_PRECEDENCE.NORMAL
+  // });
 
-  game.keybindings.register(MODULE_ID, 'decreaseTilesOpacity', {
-  name: game.i18n.localize('isometric-perspective.keybindings_decrease_tile_opacity'),
-  hint: game.i18n.localize('isometric-perspective.keybindings_decrease_tile_opacity_hint'),
-    editable: [
-        { key: 'NumpadSubtract', modifiers: ['Control'] }
-    ],
-    onDown: () => {
-        decreaseTilesOpacity();
-    },
-    restricted: false,
-    reservedModifiers: [],
-    precedence: CONST.KEYBINDING_PRECEDENCE.NORMAL
-  });
+  // game.keybindings.register(MODULE_ID, 'decreaseTilesOpacity', {
+  // name: game.i18n.localize('isometric-perspective.keybindings_decrease_tile_opacity'),
+  // hint: game.i18n.localize('isometric-perspective.keybindings_decrease_tile_opacity_hint'),
+  //   editable: [
+  //       { key: 'NumpadSubtract', modifiers: ['Control'] }
+  //   ],
+  //   onDown: () => {
+  //       decreaseTilesOpacity();
+  //   },
+  //   restricted: false,
+  //   reservedModifiers: [],
+  //   precedence: CONST.KEYBINDING_PRECEDENCE.NORMAL
+  // });
 
   // Core module hooks
   registerSceneConfig();
