@@ -2,7 +2,9 @@ import { MODULE_ID, DEBUG_PRINT, FOUNDRY_VERSION } from './main.js';
 import { ensureWallIdsArray } from './tile.js';
 import { addDebugOverlays } from './overlay.js';
 
-let foreground;          // combined foreground tiles + token clones (interwoven ordering)
+const TILE_STRIDE = 10000; // large spacing between tile depth bands
+
+let foreground; // combined foreground tiles + token clones (interwoven ordering)
 let lastControlledToken = null;
 
 let fogFilter = new PIXI.filters.ColorMatrixFilter();
@@ -109,24 +111,24 @@ function teardownContainers() {
 function migrateLegacyIsoLayerFlags() {
     try {
         const updates = [];
-        for (const t of canvas.tiles.placeables) {
-            const doc = t.document;
-            const hasIso = doc.getFlag(MODULE_ID, 'isoLayer');
+        for (const tile of canvas.tiles.placeables) {
+            const tileDoc = tile.document;
+            const hasIso = tileDoc.getFlag(MODULE_ID, 'isoLayer');
             if (hasIso) continue;
-            const legacy = doc.getFlag(MODULE_ID, 'OccludingTile');
+            const legacy = tileDoc.getFlag(MODULE_ID, 'OccludingTile');
             const layer = legacy ? 'foreground' : 'background';
-            updates.push({ _id: doc.id, [`flags.${MODULE_ID}.isoLayer`]: layer });
+            updates.push({ _id: tileDoc.id, [`flags.${MODULE_ID}.isoLayer`]: layer });
         }
         if (updates.length) canvas.scene.updateEmbeddedDocuments('Tile', updates);
         // Migrate legacy OcclusionAlpha -> OpacityOnOccluding if new flag absent
         const opMigrations = [];
-        for (const t of canvas.tiles.placeables) {
-            const doc = t.document;
-            const hasNew = doc.getFlag(MODULE_ID, 'OpacityOnOccluding');
+        for (const tile of canvas.tiles.placeables) {
+            const tileDoc = tile.document;
+            const hasNew = tileDoc.getFlag(MODULE_ID, 'OpacityOnOccluding');
             if (hasNew !== undefined) continue;
-            const old = doc.getFlag(MODULE_ID, 'OcclusionAlpha');
+            const old = tileDoc.getFlag(MODULE_ID, 'OcclusionAlpha');
             if (old !== undefined && old !== null && old !== 1) {
-                opMigrations.push({ _id: doc.id, [`flags.${MODULE_ID}.OpacityOnOccluding`]: clamp01(old) });
+                opMigrations.push({ _id: tileDoc.id, [`flags.${MODULE_ID}.OpacityOnOccluding`]: clamp01(old) });
             }
         }
         if (opMigrations.length) canvas.scene.updateEmbeddedDocuments('Tile', opMigrations);
@@ -201,24 +203,22 @@ function updateLayerOpacity(layer) {
     if (controlled.length) viewTokens = controlled;
     else if (lastControlledToken && lastControlledToken.visible) viewTokens = [lastControlledToken];
     else viewTokens = canvas.tokens.placeables.filter(t => t.visible);
-    const tokenPositions = viewTokens.map(t => ({ x: t.document.x, y: t.document.y }));
+    const tokenPositions = viewTokens.map(token => ({ x: token.document.x, y: token.document.y }));
     layer.children.forEach(sprite => {
-        const base = typeof sprite.baseAlpha === 'number' ? sprite.baseAlpha : sprite.alpha ?? 1;
+        let alpha = typeof sprite.baseAlpha === 'number' ? sprite.baseAlpha : sprite.alpha ?? 1;
         const group = sprite.opacityGroup === 'tokens' ? 'tokens' : 'tiles';
-        //const mul = group === 'tiles' ? tilesOpacity : tokensOpacity;
-        let alpha = base;// * mul;
         // Apply per-token occluding opacity if any viewpoint token exists (union rule)
         if (group === 'tiles' && tokenPositions.length && sprite.originalTile) {
             try {
-                const tdoc = sprite.originalTile.document;
-                const tileX = tdoc.x;
-                const tileBottomY = tdoc.y + tdoc.height - 0.0001;
+                const tileDoc = sprite.originalTile.document;
+                const tileX = tileDoc.x;
+                const tileBottomY = tileDoc.y + tileDoc.height - 0.0001;
                 let occludesAny = false;
                 for (const pos of tokenPositions) {
                     if (tileX <= pos.x && tileBottomY >= pos.y) { occludesAny = true; break; }
                 }
                 if (occludesAny) {
-                    const perFlag = tdoc.getFlag(MODULE_ID, 'OpacityOnOccluding');
+                    const perFlag = tileDoc.getFlag(MODULE_ID, 'OpacityOnOccluding');
                     if (perFlag !== undefined) alpha = alpha * clamp01(perFlag);
                 }
             } catch { }
@@ -238,7 +238,7 @@ function cloneTileSprite(tilePlaceable) {
     try { sprite.scale.set(mesh.scale.x, mesh.scale.y); } catch { sprite.scale.set(1, 1); }
     const tileDocAlpha = typeof tilePlaceable?.document?.alpha === 'number' ? tilePlaceable.document.alpha : 1;
     sprite.baseAlpha = tileDocAlpha; // store document alpha only
-    sprite.alpha = tileDocAlpha; // * tilesOpacity; // initial composite; may be reduced per view token later
+    sprite.alpha = tileDocAlpha; // initial alpha; may be reduced per view token later
     sprite.opacityGroup = 'tiles';
     sprite.eventMode = 'passive';
     sprite.originalTile = tilePlaceable;
@@ -268,7 +268,7 @@ function cloneTokenSprite(token) {
         try { sprite.scale.set(mesh.scale.x, mesh.scale.y); } catch { sprite.scale.set(1, 1); }
         const tokenAlpha = typeof token.alpha === 'number' ? token.alpha : 1;
         sprite.baseAlpha = tokenAlpha;
-        sprite.alpha = tokenAlpha;// * tokensOpacity;
+        sprite.alpha = tokenAlpha;
         sprite.opacityGroup = 'tokens';
         sprite.eventMode = 'passive';
         sprite.originalToken = token;
@@ -281,9 +281,6 @@ function cloneTokenSprite(token) {
         return null;
     }
 }
-
-// --- Refactored helpers for updateAlwaysVisibleElements ---
-const TILE_STRIDE = 10000; // large spacing between tile depth bands
 
 function collectTileEntries() {
     const backgroundTileDocs = [];
@@ -431,7 +428,7 @@ function buildDebugPlan(foregroundTileEntries, backgroundTileDocs, tokenDepthMap
         if (controlled.length) viewTokens = controlled;
         else if (lastControlledToken && lastControlledToken.visible) viewTokens = [lastControlledToken];
         else viewTokens = canvas.tokens.placeables.filter(t => t.visible);
-        const tokenPositions = viewTokens.map(t => ({ x: t.document.x, y: t.document.y }));
+        const tokenPositions = viewTokens.map(token => ({ x: token.document.x, y: token.document.y }));
         for (const tileEntry of foregroundTileEntries) {
             const tile = tileEntry.tile; if (!tile?.mesh) continue;
             const { gx, gy } = getTileBottomCornerGridXY(tile);
@@ -454,11 +451,11 @@ function buildDebugPlan(foregroundTileEntries, backgroundTileDocs, tokenDepthMap
         for (const token of canvas.tokens.placeables) {
             if (!token || !token.visible) continue;
             const { gx, gy } = getTokenGridXY(token);
-            const doc = token.document;
-            const w = (Number(doc.width) || 1) * (canvas.grid?.size || 1);
-            const h = (Number(doc.height) || 1) * (canvas.grid?.size || 1);
-            const px = Number(doc.x) + w * 0.5;
-            const py = Number(doc.y) + h;
+            const tokenDoc = token.document;
+            const w = (Number(tokenDoc.width) || 1) * (canvas.grid?.size || 1);
+            const h = (Number(tokenDoc.height) || 1) * (canvas.grid?.size || 1);
+            const px = Number(tokenDoc.x) + w * 0.5;
+            const py = Number(tokenDoc.y) + h;
             const depth = tokenDepthMap.get(token.id);
             if (depth !== undefined) plan.debugTokens.push({ gx, gy, sort: Math.round(depth), px, py });
         }
@@ -575,8 +572,13 @@ function applyVisibilityCulling(foregroundTileEntries, tokenEntries) {
             else 
             {
                 const fogExploration = canvas.fog?.fogExploration === true;
-                const intersection = [...entry.sprite.originalTile.seenBy].filter(id => viewerIds.has(id));
 
+                
+                // If we want a fog exploration shared by all tokens
+                //if (fogExploration && entry.sprite.originalTile.seenBy.size) 
+                
+                // If we want a per-token fog exploration
+                const intersection = [...entry.sprite.originalTile.seenBy].filter(id => viewerIds.has(id));
                 if (fogExploration && intersection.length) 
                 {
                     entry.sprite.visible = true;                    
@@ -591,13 +593,13 @@ function applyVisibilityCulling(foregroundTileEntries, tokenEntries) {
 
         // Cull token clones unless they are viewer tokens themselves (always visible)
         for (const entry of tokenEntries) {
-            const token = entry.token; const doc = token.document;
+            const token = entry.token; const tokenDoc = token.document;
             if (viewerIds.has(token.id)) {
                 entry.sprite.visible = true;
                 continue;
             }
-            const w = (doc.width || 1) * gridSize; const h = (doc.height || 1) * gridSize;
-            const visible = testPerimeter(doc.x, doc.y, w, h);
+            const w = (tokenDoc.width || 1) * gridSize; const h = (tokenDoc.height || 1) * gridSize;
+            const visible = testPerimeter(tokenDoc.x, tokenDoc.y, w, h);
             entry.sprite.visible = visible;
         }
     } catch (e) { if (DEBUG_PRINT) console.warn('applyCornerVisibilityCulling failed', e); }

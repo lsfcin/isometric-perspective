@@ -337,31 +337,8 @@ function drawLinkedWallsOverlay(tile) {
     // Foundry default style approximations: normal(white), door(purple), secret(orange), invisible(cyan)
     const COLOR_NORMAL = 0xffc864;
 
-    // for (const wid of ids) {
-    //   const wall = canvas.walls.get(wid);
-    //   if (!wall) continue;
-    //   // Version-agnostic endpoint extraction
-    //   let ax, ay, bx, by;
-    //   if (wall.A && wall.B) { // v11 style
-    //     ax = wall.A.x; ay = wall.A.y; bx = wall.B.x; by = wall.B.y;
-    //   } else if (wall.edge?.a && wall.edge?.b) { // v10 style
-    //     ax = wall.edge.a.x; ay = wall.edge.a.y; bx = wall.edge.b.x; by = wall.edge.b.y;
-    //   } else continue;
-    //   const g = new PIXI.Graphics();
-    //   g.eventMode = 'passive';
-
-    //   let color = COLOR_NORMAL;
-
-
-    //   g.lineStyle(5, 0x000000, 0.35);
-    //   g.moveTo(ax, ay); g.lineTo(bx, by);
-    //   g.lineStyle(3, color, 0.95);
-    //   g.moveTo(ax, ay); g.lineTo(bx, by);
-    //   g.beginFill(color, 0.95); g.drawCircle(ax, ay, 4); g.drawCircle(bx, by, 4); g.endFill();
-    //   group.addChild(g);
-    // }
-    for (const wid of ids) {
-      const wall = canvas.walls.get(wid);
+    for (const wallId of ids) {
+      const wall = canvas.walls.get(wallId);
       if (!wall) continue;
 
       // Version-agnostic endpoint extraction
@@ -381,23 +358,23 @@ function drawLinkedWallsOverlay(tile) {
         by = wall.B.y;
       } else continue;
 
-      const g = new PIXI.Graphics();
-      g.eventMode = "passive";
+      const graphics = new PIXI.Graphics();
+      graphics.eventMode = "passive";
 
       const color = COLOR_NORMAL;
 
-      g.lineStyle(5, 0x000000, 0.35);
-      g.moveTo(ax, ay);
-      g.lineTo(bx, by);
-      g.lineStyle(3, color, 0.95);
-      g.moveTo(ax, ay);
-      g.lineTo(bx, by);
-      g.beginFill(color, 0.95);
-      g.drawCircle(ax, ay, 4);
-      g.drawCircle(bx, by, 4);
-      g.endFill();
+      graphics.lineStyle(5, 0x000000, 0.35);
+      graphics.moveTo(ax, ay);
+      graphics.lineTo(bx, by);
+      graphics.lineStyle(3, color, 0.95);
+      graphics.moveTo(ax, ay);
+      graphics.lineTo(bx, by);
+      graphics.beginFill(color, 0.95);
+      graphics.drawCircle(ax, ay, 4);
+      graphics.drawCircle(bx, by, 4);
+      graphics.endFill();
 
-      group.addChild(g);
+      group.addChild(graphics);
     }
     if (group.children.length) {
       hoverLayer.addChild(group);
