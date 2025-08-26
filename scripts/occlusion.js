@@ -35,7 +35,7 @@ async function markSeenBy(tile, viewers) {
 
 // --- Hooks ---
 export function registerOcclusionConfig() {
-    if (!shouldEnableDynamicTiles()) return;
+    if (!enableForegroundTileOcclusion()) return;
     registerLifecycleHooks();
     registerTileHooks();
     registerTokenHooks();
@@ -43,11 +43,13 @@ export function registerOcclusionConfig() {
     registerFogOfWarHooks();
 }
 
-function shouldEnableDynamicTiles() {
+function enableForegroundTileOcclusion() {
     try {
-        const enable = game.settings.get(MODULE_ID, 'enableOcclusionDynamicTile');
+        //const enable = game.settings.get(MODULE_ID, 'enableOcclusionDynamicTile');
+        //const enable = game.settings.get(MODULE_ID, 'enableOcclusionDynamicTile');
         const worldIso = game.settings.get(MODULE_ID, 'worldIsometricFlag');
-        return !!(enable && worldIso);
+        //return !!(enable && worldIso);
+        return !!(worldIso);
     } catch { return false; }
 }
 
@@ -497,8 +499,6 @@ function updateAlwaysVisibleElements() {
 // are in LOS of any player-observed token (or controlled tokens). Applies only if setting enabled.
 function applyVisibilityCulling(foregroundTileEntries, tokenEntries) {
     try {
-        if (!game.settings.get(MODULE_ID, 'enableCornerVisibilityCulling')) return;
-
         // Gather viewer tokens (controlled or owned & visible)
         let viewers = canvas.tokens.controlled.filter(t => t.visible);
 

@@ -6,7 +6,7 @@
     "isometric-perspective.settings_height_hint": "Toggle whether token sprites adjust their position to reflect their elevation.",
     "isometric-perspective.settings_visuals_name": "Enable Token Visuals",
     "isometric-perspective.settings_visuals_hint": "Displays a circular shadow and a vertical red line to indicate token elevation. Requires 'Enable Height Adjustment' to be active.",
-    "isometric-perspective.settings_dynamic_tile_name": "Enable Dynamic Tile Occlusion",
+    
     "isometric-perspective.settings_dynamic_tile_hint": "(BETA FEATURE. USE WITH CAUTION) Adjusts the visibility of tiles dynamically with the positioning of tokens. See how this feature works here.",
     "isometric-perspective.settings_token_sort_name": "Enable Automatic Token Sorting",
     "isometric-perspective.settings_token_sort_hint": "(BETA FEATURE. USE WITH CAUTION. V12+ ONLY) Automatically adjusts the tokens sort property value when moving it around the canvas.",

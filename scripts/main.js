@@ -2,7 +2,6 @@ import { registerSceneConfig } from './scene.js';
 import { registerTokenConfig } from './token.js';
 import { registerTileConfig } from './tile.js';
 import { registerHUDConfig } from './hud.js';
-import { registerSortingConfig } from './autosorting.js';
 import { registerOcclusionConfig } from './occlusion.js';
 import { applyIsometricPerspective, applyBackgroundTransformation } from './transform.js';
 import { ISOMETRIC_CONST } from './consts.js';
@@ -57,57 +56,6 @@ Hooks.once("init", function() {
     requiresReload: true
   });
 
-  game.settings.register(MODULE_ID, 'enableOcclusionDynamicTile', {
-  name: game.i18n.localize('isometric-perspective.settings_dynamic_tile_name'),
-  hint: game.i18n.localize('isometric-perspective.settings_dynamic_tile_hint'),
-    scope: 'world',
-    config: true,
-    default: false,
-    type: Boolean,
-    requiresReload: true
-  });
-
-  game.settings.register(MODULE_ID, 'enableCornerVisibilityCulling', {
-  name: 'Isometric: Visibility Culling',
-  hint: 'Hide tiles and non-viewer tokens if none of their grid corners are within LOS/vision of any of the user\'s visible tokens.',
-    scope: 'client',
-    config: true,
-    default: false,
-    type: Boolean,
-    requiresReload: false
-  });
-
-  game.settings.register(MODULE_ID, 'enableAutoSorting', {
-  name: game.i18n.localize('isometric-perspective.settings_token_sort_name'),
-  hint: game.i18n.localize('isometric-perspective.settings_token_sort_hint'),
-    scope: 'world',
-    config: true,
-    default: false,
-    type: Boolean,
-    requiresReload: true
-  });
-  
-  game.settings.register(MODULE_ID, 'enableOcclusionTokenSilhouette', {
-  name: game.i18n.localize('isometric-perspective.settings_token_silhouette_name'),
-  hint: game.i18n.localize('isometric-perspective.settings_token_silhouette_hint'),
-    scope: 'client',
-    config: true,
-    type: String,
-    choices: {
-      "off": "Off",
-      "gpu": "GPU Mode",
-      "cpu1": "CPU Mode (Chunk Size 1)",
-      "cpu2": "CPU Mode (Chunk Size 2)",
-      "cpu3": "CPU Mode (Chunk Size 3)", 
-      "cpu4": "CPU Mode (Chunk Size 4)",
-      "cpu6": "CPU Mode (Chunk Size 6)",
-      "cpu8": "CPU Mode (Chunk Size 8)",
-      "cpu10": "CPU Mode (Chunk Size 10)"
-    },
-    default: "off",
-    requiresReload: true
-  });
-
   game.settings.register(MODULE_ID, "showWelcome", {
   name: game.i18n.localize('isometric-perspective.settings_welcome_name'),
   hint: game.i18n.localize('isometric-perspective.settings_welcome_hint'),
@@ -127,35 +75,6 @@ Hooks.once("init", function() {
     requiresReload: true
   });
 
-  // Module keybindings
-  // game.keybindings.register(MODULE_ID, 'increaseTilesOpacity', {
-  // name: game.i18n.localize('isometric-perspective.keybindings_increase_tile_opacity'),
-  // hint: game.i18n.localize('isometric-perspective.keybindings_increase_tile_opacity_hint'),
-  //   editable: [
-  //       { key: 'NumpadAdd', modifiers: ['Control'] }
-  //   ],
-  //   onDown: () => {
-  //       increaseTilesOpacity();
-  //   },
-  //   restricted: false,
-  //   reservedModifiers: [],
-  //   precedence: CONST.KEYBINDING_PRECEDENCE.NORMAL
-  // });
-
-  // game.keybindings.register(MODULE_ID, 'decreaseTilesOpacity', {
-  // name: game.i18n.localize('isometric-perspective.keybindings_decrease_tile_opacity'),
-  // hint: game.i18n.localize('isometric-perspective.keybindings_decrease_tile_opacity_hint'),
-  //   editable: [
-  //       { key: 'NumpadSubtract', modifiers: ['Control'] }
-  //   ],
-  //   onDown: () => {
-  //       decreaseTilesOpacity();
-  //   },
-  //   restricted: false,
-  //   reservedModifiers: [],
-  //   precedence: CONST.KEYBINDING_PRECEDENCE.NORMAL
-  // });
-
   // Core module hooks
   registerSceneConfig();
   registerTokenConfig();
@@ -165,8 +84,6 @@ Hooks.once("init", function() {
   
   // Additional module features
   registerOcclusionConfig();
-  registerSortingConfig();
-  // registerOcclusionConfig();
   registerTilePresetStorage(); // Step 1: hidden storage for tile presets
 
   // Define global debug flags

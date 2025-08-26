@@ -6,7 +6,7 @@
     "isometric-perspective.settings_height_hint": "Ativa ou desativa o ajuste da posição da arte dos tokens para refletir sua elevação.",
     "isometric-perspective.settings_visuals_name": "Habilitar Dicas Visuais de Elevação dos Tokens",
     "isometric-perspective.settings_visuals_hint": "Exibe uma sombra circular e uma linha vermelha vertical para indicar a elevação do token. Requer que 'Habilitar Ajuste de Altura' esteja ativo.",
-    "isometric-perspective.settings_dynamic_tile_name": "Ativar Oclusão: Tile Dinâmico",
+    
     "isometric-perspective.settings_dynamic_tile_hint": "(RECURSO EM TESTES. USE COM CUIDADO) Ajusta a visibilidade dos tiles dinamicamente com a posição dos tokens. Veja como esta funcionalidade funciona aqui.",
     "isometric-perspective.settings_token_sort_name": "Habilitar Ordenação Automática de Tokens",
     "isometric-perspective.settings_token_sort_hint": "(RECURSO EM TESTES. USE COM CUIDADO. SOMENTE PARA V12+) Ajusta automaticamente o valor de ordenação dos tokens ao movê-los pelo canvas.",
