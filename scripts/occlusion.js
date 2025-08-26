@@ -45,10 +45,7 @@ export function registerOcclusionConfig() {
 
 function enableForegroundTileOcclusion() {
     try {
-        //const enable = game.settings.get(MODULE_ID, 'enableOcclusionDynamicTile');
-        //const enable = game.settings.get(MODULE_ID, 'enableOcclusionDynamicTile');
         const worldIso = game.settings.get(MODULE_ID, 'worldIsometricFlag');
-        //return !!(enable && worldIso);
         return !!(worldIso);
     } catch { return false; }
 }
@@ -57,7 +54,7 @@ function registerLifecycleHooks() {
     Hooks.on('canvasInit', setupContainers);
     Hooks.on('changeScene', teardownContainers);
     Hooks.on('canvasReady', () => updateAlwaysVisibleElements());
-    Hooks.once('canvasReady', migrateLegacyIsoLayerFlags);
+    Hooks.on("renderSceneControls", () => updateAlwaysVisibleElements());
 }
 
 function registerTileHooks() {
@@ -113,6 +110,7 @@ function setupContainers() {
     foreground.name = 'Isometric Foreground';
     foreground.sortableChildren = true;
     foreground.eventMode = 'passive';
+
     // Place above native tiles but (ideally) below tokens original layer; since we hide originals, exact order is less critical
     canvas.stage.addChild(foreground);
 }
@@ -122,34 +120,6 @@ function teardownContainers() {
         try { if (foreground.parent) foreground.parent.removeChild(foreground); foreground.destroy({ children: true }); } catch { }
     }
     foreground = null;
-}
-
-function migrateLegacyIsoLayerFlags() {
-    try {
-        const updates = [];
-        for (const tile of canvas.tiles.placeables) {
-            const tileDoc = tile.document;
-            const hasIso = tileDoc.getFlag(MODULE_ID, 'isoLayer');
-            if (hasIso) continue;
-            const legacy = tileDoc.getFlag(MODULE_ID, 'OccludingTile');
-            const layer = legacy ? 'foreground' : 'background';
-            updates.push({ _id: tileDoc.id, [`flags.${MODULE_ID}.isoLayer`]: layer });
-        }
-        if (updates.length) canvas.scene.updateEmbeddedDocuments('Tile', updates);
-
-        // Migrate legacy OcclusionAlpha -> OpacityOnOccluding if new flag absent
-        const opMigrations = [];
-        for (const tile of canvas.tiles.placeables) {
-            const tileDoc = tile.document;
-            const hasNew = tileDoc.getFlag(MODULE_ID, 'OpacityOnOccluding');
-            if (hasNew !== undefined) continue;
-            const old = tileDoc.getFlag(MODULE_ID, 'OcclusionAlpha');
-            if (old !== undefined && old !== null && old !== 1) {
-                opMigrations.push({ _id: tileDoc.id, [`flags.${MODULE_ID}.OpacityOnOccluding`]: clamp01(old) });
-            }
-        }
-        if (opMigrations.length) canvas.scene.updateEmbeddedDocuments('Tile', opMigrations);
-    } catch (e) { if (DEBUG_PRINT) console.warn('Iso layer migration failed', e); }
 }
 
 function initializeNewTileFlags(tile) {
@@ -238,6 +208,12 @@ function updateLayerOpacity(layer) {
                 if (occludesAny) {
                     const perFlag = tileDoc.getFlag(MODULE_ID, 'OpacityOnOccluding');
                     if (perFlag !== undefined) alpha = alpha * clamp01(perFlag);
+                }
+
+                let activeControl = ui.controls.activeControl;
+                if (activeControl == "walls") {
+                    if(DEBUG_PRINT) console.log('Walls active, dimming tiles to ease manipulation of attached walls');
+                    alpha = Math.min(alpha, 0.6);
                 }
             } catch { }
         }
@@ -580,7 +556,7 @@ function applyVisibilityCulling(foregroundTileEntries, tokenEntries) {
             const hideOnFog = tile.document.getFlag(MODULE_ID, 'hideOnFog') ?? false;
             const intersection = seenBy.filter(id => viewerIds.has(id));
             const fogExploration = canvas.fog?.fogExploration === true;
-            
+
             // Visible now, render normally without filters
             if (currentlyVisible) {
                 markSeenBy(tile, viewers);
@@ -589,14 +565,12 @@ function applyVisibilityCulling(foregroundTileEntries, tokenEntries) {
                 entry.sprite.filters = [];
             }
             // On fog and fog active, render with fog filter
-            else if (!currentlyVisible && !hideOnFog && fogExploration && intersection.size) 
-            {
+            else if (!currentlyVisible && !hideOnFog && fogExploration && intersection.size) {
                 entry.sprite.visible = true;
                 entry.sprite.filters = [fogFilter];
             }
             // Not currently visible and not on fog (or not renderable on fog), hide the tile
-            else 
-            {
+            else {
                 entry.sprite.visible = false;
             }
         }

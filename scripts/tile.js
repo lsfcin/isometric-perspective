@@ -216,8 +216,6 @@ async function handleRenderTileConfig(app, html, data) {
     isBackground: isoLayer === 'background',
     hideOnFog: app.object.getFlag(MODULE_ID, 'hideOnFog') ?? false,
 
-    // Retain legacy occlusion alpha only for foreground tiles for backward compatibility (hidden otherwise)
-    occlusionAlpha: app.object.getFlag(MODULE_ID, 'OcclusionAlpha') ?? 1,
     opacityOnOccluding: app.object.getFlag(MODULE_ID, 'OpacityOnOccluding') ?? 0.5,
     useImagePreset: app.object.getFlag(MODULE_ID, 'useImagePreset') ?? true
   });
