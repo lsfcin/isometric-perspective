@@ -77,17 +77,9 @@ Console helper (for debugging): `window.ISO_TILE_PRESETS` with `get / save(name)
 * Visibility culling: grid‑cell‑center sampling for tiles and tokens; ignores a tile’s own linked walls while testing; respects Foundry lighting/vision.
 
 ### Planned / In Progress
-* Define default settings for newly created tiles (auto‑preset opt‑in, initial scale, occlusion defaults).
-* Fine‑tune drop placement (tile currently appears slightly above intended bottom‑left cursor point).
-* Correct a minor grid alignment offset (sub‑pixel deviation on one axis).
+* Save token's modifications.
 * Open config popups docked to the right side instead of screen center.
-* Allow non‑dynamic tiles to override dynamic tiles in render ordering when needed.
-* Add per‑tile "max height" for occlusion logic (virtual vertical extent cap).
-* Provide optional center‑anchor flip mode.
-* Display & edit linked wall endpoints inline when a tile is selected (direct manipulation handles).
-* Additional granular tile reordering (single-step up/down) UI.
-* Dynamic lighting interaction for tiles (light blocking / emission integration).
-* Hide direct elevation display or remap elevation to an internal height offset like tokens.
+* Apply elevation displacement on tiles.
 * Automatic shadow distance derived from tile height.
 * Drop shadow option (square / round) for tiles and tokens.
 * Token image rotation (preserving isometric projection rules).
@@ -95,13 +87,11 @@ Console helper (for debugging): `window.ISO_TILE_PRESETS` with `get / save(name)
 * Multiple token image variants selectable by players.
 * Explicit “Save Tile Adjustments to Image” button (UI wrapper around auto preset system).
 * Auto‑draw ground shadow for tokens (no baked shadow needed in artwork).
-* Perspective skew (shear) controls in Isometric tab.
 * Isometric dice roll visual effect.
 
 #### Near‑term fixes and polish
 - UI: 1‑pixel displacement in left‑menu buttons if both foreground and background tiles are selected.
 - UI: if both foreground and background tiles are selected and one is deselected, left‑menu buttons don’t update correctly.
-- Visual parity: walls should render above tiles (ordering consistency across layers).
 - Compatibility: audit for incompatibilities with vanilla Foundry; fix or guard accordingly.
 - Upgrade path: Foundry VTT v13 support.
 - Cleanup: remove legacy code, flags, and UI remnants after the new flow is stable.
