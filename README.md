@@ -10,6 +10,7 @@ Core credits: all foundational work belongs to the original author.
 
 ### Occlusion & Visibility
 * Tile occlusion without permanently dimming art: occluder clones are drawn on the token layer only while hiding tokens.
+* LOS auto‑hide using grid‑cell centers: tiles and non‑viewer tokens are hidden if none of the occupied grid‑cell centers are visible from any viewer token. A tile’s own linked walls are ignored during its visibility test to avoid self‑blocking; other walls and lighting still apply.
 * Per‑tile Occlusion Opacity slider (visible only when “Occluding Tokens” is enabled).
 * Door‑linked visibility: opening a linked door wall can fully hide a tile.
 
@@ -73,6 +74,7 @@ Console helper (for debugging): `window.ISO_TILE_PRESETS` with `get / save(name)
 * Resize of the tile’s rectangle does not distort isometric artwork.
 * Attached (linked) walls follow tile move, resize, and flip using anchored relative coordinates.
 * Bring to Front / Send to Back ordering buttons (batch update Tile.sort).
+* Visibility culling: grid‑cell‑center sampling for tiles and tokens; ignores a tile’s own linked walls while testing; respects Foundry lighting/vision.
 
 ### Planned / In Progress
 * Define default settings for newly created tiles (auto‑preset opt‑in, initial scale, occlusion defaults).
@@ -92,10 +94,40 @@ Console helper (for debugging): `window.ISO_TILE_PRESETS` with `get / save(name)
 * Animated tokens (spritesheet / frame cycling support).
 * Multiple token image variants selectable by players.
 * Explicit “Save Tile Adjustments to Image” button (UI wrapper around auto preset system).
-* Explicit “Save Token Adjustments to Image” button.
 * Auto‑draw ground shadow for tokens (no baked shadow needed in artwork).
 * Perspective skew (shear) controls in Isometric tab.
 * Isometric dice roll visual effect.
+
+#### Near‑term fixes and polish
+- UI: 1‑pixel displacement in left‑menu buttons if both foreground and background tiles are selected.
+- UI: if both foreground and background tiles are selected and one is deselected, left‑menu buttons don’t update correctly.
+- Visual parity: walls should render above tiles (ordering consistency across layers).
+- Compatibility: audit for incompatibilities with vanilla Foundry; fix or guard accordingly.
+- Upgrade path: Foundry VTT v13 support.
+- Cleanup: remove legacy code, flags, and UI remnants after the new flow is stable.
+
+#### Vision & appearance
+- Apply vision filters to tiles based on the viewer’s vision type (e.g., grayscale for darkvision).
+- Occlusion opacity: refine per‑tile behavior under dynamic vision to feel consistent with viewer expectations.
+
+#### Performance
+- Measure and document performance; optimize hot paths.
+- Bounding‑box intersection precheck to skip unnecessary visibility tests.
+
+#### Token & preset workflow
+- Save token adjustments/presets similar to tile image presets (flip, offsets, scale, occlusion prefs).
+
+#### Elevation and Height (design)
+- Default tile elevation: 0 ft; default tile height: 300 ft.
+- Visual displacement like tokens: tiles with elevation are drawn “above” their grid position using the same offset rule used for tokens.
+- New tile property: “Visible from Below” (default: true). If false, the tile only shows to tokens whose elevation is equal or higher.
+- Attached walls inherit tile elevation/height initially; allow per‑wall elevation/height overrides in the attached walls list.
+- Extra ideas:
+	- Vertical visibility/lighting calculations.
+	- Option to pre‑build walls from tile metadata.
+	- Visualize wall height: dashed verticals on corners with a parallel top edge.
+	- Walls above tokens don’t affect them (vision/movement) across floors; tokens can pass through upper‑floor walls.
+	- Tiles with attached walls can block vertical movement when appropriate.
 
 ### Future Ideas / Experimental
 * Dedicated corner dice rolling / animation area.
