@@ -1,656 +1,646 @@
-import { MODULE_ID, DEBUG_PRINT } from './main.js';
-
-// Enhanced Occlusion Layer Module for Foundry VTT
-export function registerOcclusionConfig() {
-	const occlusionMode = game.settings.get(MODULE_ID, "enableOcclusionTokenSilhouette");
-	if (occlusionMode === "off") return;
-
-	// Global Hook Registration
-	function registerGlobalHooks() {
-		const updateTriggers = [
-			'canvasReady', 
-			'canvasPan',
-			'canvasTokensRefresh', 
-			'updateToken', 
-			'controlToken', 
-			'refreshToken',
-			'preUpdateScene',
-			'updateScene'
-		];
-
-		updateTriggers.forEach(hookName => {
-			Hooks.on(hookName, () => {
-				updateOcclusionLayer(); //debouncedUpdate();
-			});
-		});
-	}
-
-	// Initialize on canvas setup
-	// Hooks.on('refreshToken', () => { debouncedUpdate(); });
-	
-	// Initial layer setup
-	Hooks.once('ready', () => {
-		if (canvas.ready)
-			initializeOcclusionLayer();
-	});
-
-	// Initialize on canvas setup
-	Hooks.on('canvasInit', () => {
-		initializeOcclusionLayer();
-	});
-
-	// Reset on scene change
-	Hooks.on('changeScene', () => {
-		if (occlusionConfig.container) {
-			canvas.stage.removeChild(occlusionConfig.container);
-			occlusionConfig.container.destroy({ children: true });
-			occlusionConfig.container = null;
-			occlusionConfig.tokensLayer = null;
-			occlusionConfig.initialized = false;
-		}
-	});
-
-	// Start the module
-	registerGlobalHooks();
-}
-
-// Otimização 1: Debounce do updateOcclusionLayer
-//const debouncedUpdate = debounce(updateOcclusionLayer, 50);
-//const throttledUpdate = throttle(updateOcclusionLayer, 50);
-
-
-
-
-
-
-
-
-
-
-
-
-// Persistent occlusion layer configuration
-const occlusionConfig = {
-	container: null,
-	tokensLayer: null,
-	initialized: false
-};
-
-// Initialize or reset the occlusion layer
-function initializeOcclusionLayer() {
-	// Remove existing container if it exists
-	if (occlusionConfig.container) {
-		canvas.stage.removeChild(occlusionConfig.container);
-		occlusionConfig.container.destroy({ children: true });
-	}
-
-	// Create the main occlusion container
-	occlusionConfig.container = new PIXI.Container();
-	occlusionConfig.container.name = "OcclusionContainer";
-	occlusionConfig.container.eventMode = 'passive';
-
-	// Create a layer for occlusion tokens
-	occlusionConfig.tokensLayer = new PIXI.Container();
-	occlusionConfig.tokensLayer.name = "OcclusionTokens";
-	occlusionConfig.tokensLayer.sortableChildren = true;
-
-	// Add the layer to the container
-	occlusionConfig.container.addChild(occlusionConfig.tokensLayer);
-
-	// Add to canvas stage
-	canvas.stage.addChild(occlusionConfig.container);
-	canvas.stage.sortChildren();
-
-	occlusionConfig.initialized = true;
-}
-
-
-
-// Comprehensive update mechanism for occlusion layer
-function updateOcclusionLayer() {
-	// Ensure canvas is ready and layer is initialized
-	if (!canvas.ready) return;
-
-	// Reinitialize if not yet set up
-	if (!occlusionConfig.initialized) {
-		initializeOcclusionLayer();
-	}
-
-	// Clear existing occlusion tokens
-	occlusionConfig.tokensLayer.removeChildren();
-
-	// Get all tokens and tiles
-	const tokens = canvas.tokens.placeables;
-	const tiles = canvas.tiles.placeables;
-
-	// Filtra apenas tiles com a flag OccludingTile
-	const occludingTiles = tiles.filter(tile => 
-		tile.document.getFlag(MODULE_ID, "OccludingTile")
-	);
-
-	tokens.forEach(token => {
-		// Find tiles that intersect with this token
-		const intersectingTiles = occludingTiles.filter(tile => 
-			checkTokenTileIntersection(token, tile)
-		);
-
-		// If there are intersecting tiles, create an occlusion sprite
-		if (intersectingTiles.length > 0) {
-			const occlusionSprite = createOcclusionSprite(token, intersectingTiles);
-			if (occlusionSprite) {
-				occlusionConfig.tokensLayer.addChild(occlusionSprite);
-			}
-		}
-	});
-}
-
-function checkTokenTileIntersection(token, tile) {
-	// Get bounding boxes
-	const tokenBounds = token.mesh.getBounds();
-	const tileBounds = tile.mesh.getBounds();
-
-	// Calculate centers
-	const tokenCenter = {
-			x: tokenBounds.x + (tokenBounds.width / 2),
-			y: tokenBounds.y + (tokenBounds.height / 2)
-	};
-	
-	const tileCenter = {
-			x: tileBounds.x + (tileBounds.width / 2),
-			y: tileBounds.y + (tileBounds.height / 2)
-	};
-
-	if (DEBUG_PRINT) {
-		let DEBUG_INTERSECTION = true;
-		debugVisualIntersection(token, tile, DEBUG_INTERSECTION);
-	}
-	
-	// First check if token center is "behind" tile center
-	//if (tokenCenter.x <= tileCenter.x || tileCenter.y <= tokenCenter.y) {
-	if (tileCenter.y <= tokenCenter.y) {
-			return false;
-	}
-
-	// Then do the regular intersection check
-	return (
-			tokenBounds.x < tileBounds.x + tileBounds.width &&
-			tokenBounds.x + tokenBounds.width > tileBounds.x &&
-			tokenBounds.y < tileBounds.y + tileBounds.height &&
-			tokenBounds.y + tokenBounds.height > tileBounds.y
-	);
-}
-
-// Create Occlusion Sprite with Advanced Masking
-function createOcclusionSprite(token, intersectingTiles) {
-	if (!token.mesh || !token.mesh.texture) return null;
-
-	// Create a sprite from the token's texture
-	const sprite = new PIXI.Sprite(token.mesh.texture);
-	sprite.position.set(token.mesh.position.x, token.mesh.position.y);
-	sprite.anchor.set(token.mesh.anchor.x, token.mesh.anchor.y);
-	sprite.angle = token.mesh.angle;
-	sprite.scale.set(token.mesh.scale.x, token.mesh.scale.y);
-
-	// Create a mask for the occlusion
-	const mask = createOcclusionMask(token, intersectingTiles);
-	
-	if (mask) {
-		sprite.mask = mask;
-	}
-
-	// sprite.filters = [colorMatrix, outlineFilter, alphaFilter];
-	sprite.filters = [colorMatrix, outlineFilter]; //filter configs at eof
-
-	//sprite.alpha = 0.75;
-	sprite.eventMode = 'passive';
-
-	return sprite;
-}
-
-// Advanced Occlusion Mask Creation
-const alphaFragmentShader = `
-varying vec2 vTextureCoord;
-uniform sampler2D uSampler;       // Textura do token (não usada aqui)
-uniform sampler2D uTileMask;      // Textura do tile
-uniform vec4 dimensions;          // [x, y, width, height] da interseção
-uniform vec4 tileDimensions;      // [x, y, width, height] do tile
-
-void main(void) {
-	// Posição local do fragmento na interseção
-	vec2 localPos = gl_FragCoord.xy - dimensions.xy;
-	
-	// Coordenadas UV normalizadas para a textura do tile
-	vec2 tileCoord = vec2(
-		(localPos.x / dimensions.z) * (tileDimensions.z / dimensions.z),
-		(localPos.y / dimensions.w) * (tileDimensions.w / dimensions.w)
-	);
-
-	// Ajuste para considerar a posição do tile no canvas
-	tileCoord.x += (dimensions.x - tileDimensions.x) / tileDimensions.z;
-	tileCoord.y += (dimensions.y - tileDimensions.y) / tileDimensions.w;
-
-	// Amostra a textura do tile
-	vec4 tileColor = texture2D(uTileMask, tileCoord);
-
-	// Amostra a textura do token
-	vec4 tokenColor = texture2D(uSampler, vTextureCoord);
-
-	// Se o pixel do tile for opaco, cria uma máscara branca opaca
-	if (tileColor.a > 0.1) {
-		gl_FragColor = vec4(1.0, 1.0, 1.0, 1.0); // Branco opaco
-	} else {
-		gl_FragColor = vec4(0.0, 0.0, 0.0, 0.0); // Transparente
-	}
-}
-`;
-
-function createOcclusionMask(token, intersectingTiles) {
-	// const gpu = 1;
-	// const chunkSize = 2;
-	// 1  = pixel perfect, but cpu intensive;
-	// 2  = okish, still cpu intensive with a lot of tokens on scene, kinda pixelated, but work for simple tiles
-	// 3  = still heavy on performance, but only with a lot of tokens, pixelated, works only on tiles with straight lines
-	// 4+ = light on cpu in zoom out, heavy on cpu on zoom in, really pixelated
-	// 8+ = light on cpu on almost all scenarios, works only with rectangle tiles
-
-	const occlusionMode = game.settings.get(MODULE_ID, "enableOcclusionTokenSilhouette");
-	const gpu = occlusionMode === "gpu" ? 1 : 0;
-	const chunkSize = occlusionMode.startsWith("cpu") ? parseInt(occlusionMode.slice(3)) : 2;
-
-	if (gpu === 1) {
-		return createOcclusionMask_gpu(token, intersectingTiles)
-	} else {
-		return createOcclusionMask_cpu(token, intersectingTiles, chunkSize)
-	}
-}
-
-function createOcclusionMask_gpu(token, intersectingTiles) {
-	const maskGraphics = new PIXI.Graphics();
-	maskGraphics.beginFill(0xffffff);
-
-	intersectingTiles.forEach(tile => {
-		const tokenBounds = token.mesh.getBounds();
-		const tileBounds = tile.mesh.getBounds();
-
-		// Calculate intersection area
-		const x = Math.max(tokenBounds.x, tileBounds.x);
-		const y = Math.max(tokenBounds.y, tileBounds.y);
-		const width = Math.min(tokenBounds.x + tokenBounds.width, tileBounds.x + tileBounds.width) - x;
-		const height = Math.min(tokenBounds.y + tokenBounds.height, tileBounds.y + tileBounds.height) - y;
-
-		if (width <= 0 || height <= 0) return;
-
-		// Draw intersection area
-		maskGraphics.drawRect(x, y, width, height);
-
-		// Create and apply alpha filter
-		const alphaFilter = new PIXI.Filter(undefined, alphaFragmentShader, {
-			uTileMask: tile.texture,
-			dimensions: new Float32Array([x, y, width, height]),
-			tileDimensions: new Float32Array([
-				tileBounds.x, tileBounds.y, tileBounds.width, tileBounds.height
-			])
-		});
-		maskGraphics.filters = [...(maskGraphics.filters || []), alphaFilter];
-	});
-
-	maskGraphics.endFill();
-	return maskGraphics;
-}
-
-// 4/10 versão otimizada 2 (não senti muita diferença)
-function createOcclusionMask_cpu(token, intersectingTiles, chunkSize) {
-	const maskGraphics = new PIXI.Graphics();
-	maskGraphics.beginFill(0xffffff);
-
-	// Get the current scene scale
-	const stage = token.mesh.parent;
-	const sceneScale = stage?.scale?.x ?? 1;
-	const minDimension = 1 / sceneScale;
-	const adjustedChunkSize = Math.max(chunkSize / sceneScale, 1);
-
-	// Create a single reusable canvas
-	const tempCanvas = document.createElement('canvas');
-	tempCanvas.width = 256;  // Start smaller, will grow if needed
-	tempCanvas.height = 256;
-	const tempCtx = tempCanvas.getContext('2d', { 
-		willReadFrequently: true,
-		alpha: true 
-	});
-
-	// Pre-calculate token bounds once
-	const tokenBounds = token.mesh.getBounds(false, undefined);
-  
-	// Pre-allocate arrays for better memory management
-	const rectangles = [];
-
-	// Reusable objects to avoid garbage collection
-	const intersection = {x: 0, y: 0, width: 0, height: 0};
-	const source = {x: 0, y: 0, width: 0, height: 0};
-
-	for (const tile of intersectingTiles) {
-		// Skip invalid tiles early
-		const tileTexture = tile.texture?.baseTexture?.resource?.source;
-		if (!tileTexture?.width || !tileTexture?.height) continue;
-
-		const tileBounds = tile.mesh.getBounds(false, undefined);
-
-		// Calculate intersection
-		intersection.x = Math.max(tokenBounds.x, tileBounds.x);
-		intersection.y = Math.max(tokenBounds.y, tileBounds.y);
-		intersection.width = Math.min(tokenBounds.x + tokenBounds.width, tileBounds.x + tileBounds.width) - intersection.x;
-		intersection.height = Math.min(tokenBounds.y + tokenBounds.height, tileBounds.y + tileBounds.height) - intersection.y;
-
-		// Early rejection tests
-		if (intersection.width <= minDimension || intersection.height <= minDimension) continue;
-
-		// Calculate source rectangle
-		const scaleX = tileTexture.width / tileBounds.width;
-		const scaleY = tileTexture.height / tileBounds.height;
-    
-		source.x = Math.max(0, (intersection.x - tileBounds.x) * scaleX);
-		source.y = Math.max(0, (intersection.y - tileBounds.y) * scaleY);
-		source.width = Math.min(intersection.width * scaleX, tileTexture.width - source.x);
-		source.height = Math.min(intersection.height * scaleY, tileTexture.height - source.y);
-
-		// Validate source dimensions
-		if (source.width <= 0 || source.height <= 0) continue;
-
-		// Calculate canvas dimensions
-		const canvasWidth = Math.ceil(intersection.width * scaleX);
-		const canvasHeight = Math.ceil(intersection.height * scaleY);
-
-		// Resize canvas if necessary
-		if (tempCanvas.width < canvasWidth) tempCanvas.width = canvasWidth;
-		if (tempCanvas.height < canvasHeight) tempCanvas.height = canvasHeight;
-
-		// Draw tile portion
-		tempCtx.clearRect(0, 0, canvasWidth, canvasHeight);
-		tempCtx.drawImage(tileTexture,
-			source.x,
-			source.y,
-			source.width,
-			source.height,
-			0, 0, canvasWidth, canvasHeight
-		);
-
-		// Get image data and process in chunks
-		const imageData = tempCtx.getImageData(0, 0, canvasWidth, canvasHeight);
-		const dataU32 = new Uint32Array(imageData.data.buffer);
-
-		// Process chunks
-		const chunksX = Math.ceil(intersection.width / adjustedChunkSize);
-		const chunksY = Math.ceil(intersection.height / adjustedChunkSize);
-
-		for (let cy = 0; cy < chunksY; cy++) {
-			const yPos = cy * adjustedChunkSize;
-			const chunkHeight = Math.min(adjustedChunkSize, intersection.height - yPos);
-
-			for (let cx = 0; cx < chunksX; cx++) {
-				const xPos = cx * adjustedChunkSize;
-				const chunkWidth = Math.min(adjustedChunkSize, intersection.width - xPos);
-
-				// Convert chunk position to texture space
-				const textureX = Math.floor(xPos * (canvasWidth / intersection.width));
-				const textureY = Math.floor(yPos * (canvasHeight / intersection.height));
-				const textureWidth = Math.ceil(chunkWidth * (canvasWidth / intersection.width));
-				const textureHeight = Math.ceil(chunkHeight * (canvasHeight / intersection.height));
-
-				// Check for non-transparent pixels
-				let hasOpaquePixel = false;
-				
-				for (let py = textureY; py < Math.min(textureY + textureHeight, canvasHeight); py++) {
-					const rowOffset = py * canvasWidth;
-					for (let px = textureX; px < Math.min(textureX + textureWidth, canvasWidth); px++) {
-						if ((dataU32[rowOffset + px] >>> 24) > 0) {
-							hasOpaquePixel = true;
-							rectangles.push({
-								x: intersection.x + xPos,
-								y: intersection.y + yPos,
-								width: chunkWidth,
-								height: chunkHeight
-							});
-							py = canvasHeight; // Break outer loop
-							break;
-						}
-					}
-				}
-			}
-		}
-		
-	}
-
-	// Apply matrix transform
-	maskGraphics.transform.setFromMatrix(stage.transform.worldTransform);
-
-	// Draw rectangles
-	for (const rect of rectangles) {
-		maskGraphics.drawRect(
-			rect.x / sceneScale,
-			rect.y / sceneScale,
-			Math.max(rect.width / sceneScale, minDimension),
-			Math.max(rect.height / sceneScale, minDimension)
-		);
-	}
-
-	maskGraphics.transform.setFromMatrix(new PIXI.Matrix());
-	tempCanvas.remove();
-	return maskGraphics;
-}
-
-
-
-
-
-
-
-
-
-
-
-
-
-// Definição do isoOutlineFilter
-if (typeof PIXI !== 'undefined' && PIXI.filters) {
-	const vertexShader =`
-		attribute vec2 aVertexPosition;
-		attribute vec2 aTextureCoord;
-		uniform mat3 projectionMatrix;
-		varying vec2 vTextureCoord;
-
-		void main(void) {
-			gl_Position = vec4((projectionMatrix * vec3(aVertexPosition, 1.0)).xy, 0.0, 1.0);
-			vTextureCoord = aTextureCoord;
-		}
-	`;
-	const fragmentShader = `
-		varying vec2 vTextureCoord;
-
-		uniform sampler2D uSampler;
-		uniform float alpha;
-		uniform vec2 outlineThickness;
-		uniform vec4 outlineColor;
-		uniform vec4 filterArea;
-		uniform vec4 filterClamp;
-
-		void main(void) {
-			vec4 ownColor = texture2D(uSampler, vTextureCoord);
-			vec4 curColor;
-			float maxAlpha = 0.0;
-			vec2 displaced;
-
-			for (float angle = 0.0; angle < 6.28318530718; angle += 0.78539816339) {
-				displaced.x = vTextureCoord.x + outlineThickness.x * cos(angle);
-				displaced.y = vTextureCoord.y + outlineThickness.y * sin(angle);
-				curColor = texture2D(uSampler, displaced);
-				maxAlpha = max(maxAlpha, curColor.a);
-			}
-			float resultAlpha = max(maxAlpha, ownColor.a);
-			gl_FragColor = vec4((ownColor.rgb * ownColor.a + outlineColor.rgb * (1.0 - ownColor.a)) * resultAlpha, resultAlpha);
-		 }
-	`;
-
-	// Defina a classe isoOutlineFilter
-	class IsoOutlineFilter extends PIXI.Filter {
-		constructor(thickness = 0.5, color = 0x000000, alpha = 0.5) {
-			super(vertexShader, fragmentShader);
-
-			// Inicialize os uniforms
-			this.uniforms.outlineColor = new Float32Array(4);     // Para armazenar RGBA
-			this.uniforms.outlineThickness = new Float32Array(2); // Para armazenar X e Y
-			this.uniforms.filterArea = new Float32Array(2);       // Para área de filtro
-			this.uniforms.alpha = alpha;
-
-			// Configure as propriedades iniciais
-			this.color = color;
-			this.thickness = thickness;
-		}
-
-		get alpha() { return this.uniforms.alpha; }
-		set alpha(value) { this.uniforms.alpha = value; }
-
-		get color() { return PIXI.utils.rgb2hex(this.uniforms.outlineColor); }
-		set color(value) { PIXI.utils.hex2rgb(value, this.uniforms.outlineColor); }
-
-		get thickness() { return this.uniforms.outlineThickness[0]; }
-		set thickness(value) {
-			// Certifique-se de que filterArea tenha valores válidos
-			const filterAreaX = this.uniforms.filterArea[0] || 1; // Evite divisão por 0
-			const filterAreaY = this.uniforms.filterArea[1] || 1; // Evite divisão por 0
-			
-			this.uniforms.outlineThickness[0] = value / filterAreaX;
-			this.uniforms.outlineThickness[1] = value / filterAreaY;
-		}
-	}
-
-	// Add the isooutlinefilter to the PIXI.filters namepace
-	PIXI.filters.isoOutlineFilter = IsoOutlineFilter;
-} else {
-	console.error('PIXI ou PIXI.filters não estão disponíveis.');
-}
-
-// Create new outline filter
-const outlineFilter = new PIXI.filters.isoOutlineFilter();
-outlineFilter.thickness = 0.005;
-//outlineFilter.color = 0x00ff59; // lime green
-outlineFilter.color = 0x000000; // lime green
-		
-// Create a greyscale/dimming filter
-const colorMatrix = new PIXI.ColorMatrixFilter();
-colorMatrix.alpha = 1;
-colorMatrix.matrix = [
-	0.3,  0.0,  0.0,  0.0,  0.0,
-	0.0,  0.3,  0.0,  0.0,  0.0,
-	0.0,  0.0,  0.3,  0.0,  0.0,
-	0.0,  0.0,  0.0,  1.0,  0.0
+import { MODULE_ID, DEBUG_PRINT, FOUNDRY_VERSION } from './main.js';
+import { ensureWallIdsArray } from './tile.js';
+import { addDebugOverlays } from './overlay.js';
+
+const TILE_STRIDE = 10000; // large spacing between tile depth bands
+
+let foreground; // combined foreground tiles + token clones (interwoven ordering)
+let lastControlledToken = null;
+
+let fogFilter = new PIXI.filters.ColorMatrixFilter();
+fogFilter.matrix = [
+    1, 0, 0, 0, -0.1,
+    0, 1, 0, 0, -0.1,
+    0, 0, 1, 0, -0.1,
+    0, 0, 0, 1, 0
 ];
 
-const alphaFilter = new PIXI.AlphaFilter();
-alphaFilter.alpha = 0.5;
+// --- Helper functions ---
+function clamp01(n) {
+    const v = Number(n);
+    if (!Number.isFinite(v)) return 1;
+    return Math.max(0, Math.min(1, v));
+}
 
+function getSeenBy(tile) {
+    return new Set(tile.document.getFlag(MODULE_ID, 'seenBy') || []);
+}
 
+async function markSeenBy(tile, viewers) {
+    const tileDoc = tile.document;
+    let seenBy = getSeenBy(tile);
+    viewers.forEach(v => seenBy.add(v.id));
+    await tileDoc.setFlag(MODULE_ID, 'seenBy', Array.from(seenBy));
+}
 
+// --- Hooks ---
+export function registerOcclusionConfig() {
+    if (!shouldEnableDynamicTiles()) return;
+    registerLifecycleHooks();
+    registerTileHooks();
+    registerTokenHooks();
+    registerMiscHooks();
+    registerFogOfWarHooks();
+}
 
+function shouldEnableDynamicTiles() {
+    try {
+        const enable = game.settings.get(MODULE_ID, 'enableOcclusionDynamicTile');
+        const worldIso = game.settings.get(MODULE_ID, 'worldIsometricFlag');
+        return !!(enable && worldIso);
+    } catch { return false; }
+}
 
+function registerLifecycleHooks() {
+    Hooks.on('canvasInit', setupContainers);
+    Hooks.on('changeScene', teardownContainers);
+    Hooks.on('canvasReady', () => updateAlwaysVisibleElements());
+    Hooks.once('canvasReady', migrateLegacyIsoLayerFlags);
+}
 
+function registerTileHooks() {
+    Hooks.on('createTile', initializeNewTileFlags);
+    Hooks.on('updateTile', handleTileUpdate);
+    Hooks.on('refreshTile', () => updateAlwaysVisibleElements());
+    Hooks.on('deleteTile', () => updateAlwaysVisibleElements());
+}
 
+function registerTokenHooks() {
+    Hooks.on('createToken', () => setTimeout(() => updateAlwaysVisibleElements(), 100));
+    Hooks.on('controlToken', handleControlToken);
+    Hooks.on('updateToken', handleUpdateToken);
+    Hooks.on('deleteToken', handleDeleteToken);
+    Hooks.on('refreshToken', () => updateAlwaysVisibleElements());
+    Hooks.on('canvasTokensRefresh', () => updateAlwaysVisibleElements());
+    Hooks.on('updateUser', (user, changes) => { if (user.id === game.user.id && 'character' in changes) updateAlwaysVisibleElements(); });
+}
 
+function registerMiscHooks() {
+    Hooks.on('sightRefresh', () => { if (canvas.ready) updateAlwaysVisibleElements(); });
+    Hooks.on('updateWall', handleUpdateWallDoorState);
+    Hooks.on('createWall', () => updateAlwaysVisibleElements());
+    Hooks.on('deleteWall', () => updateAlwaysVisibleElements());
+}
 
+function registerFogOfWarHooks() {
+    Hooks.once('ready', () => {
+        const fog = canvas?.fog;
+        if (fog && fog._handleReset instanceof Function) {
+            const original = fog._handleReset.bind(fog);
+            fog._handleReset = async function (...args) {
+                Hooks.callAll('resetFogOfWar', fog, ...args);
+                return original(...args);
+            };
+        }
+    });
 
+    Hooks.on('resetFogOfWar', (fogManager, ...args) => {
+        for (const tile of canvas.tiles.placeables) {
+            //tile.seenBy = new Set();
+            tile.document.setFlag(MODULE_ID, 'seenBy', []);
+        }
+    });
+}
 
+// ---- Hook handlers ----
+function setupContainers() {
+    if (foreground) {
+        try { if (foreground.parent) foreground.parent.removeChild(foreground); foreground.destroy({ children: true }); } catch { }
+    }
+    foreground = new PIXI.Container();
+    foreground.name = 'Isometric Foreground';
+    foreground.sortableChildren = true;
+    foreground.eventMode = 'passive';
+    // Place above native tiles but (ideally) below tokens original layer; since we hide originals, exact order is less critical
+    canvas.stage.addChild(foreground);
+}
 
+function teardownContainers() {
+    if (foreground) {
+        try { if (foreground.parent) foreground.parent.removeChild(foreground); foreground.destroy({ children: true }); } catch { }
+    }
+    foreground = null;
+}
 
+function migrateLegacyIsoLayerFlags() {
+    try {
+        const updates = [];
+        for (const tile of canvas.tiles.placeables) {
+            const tileDoc = tile.document;
+            const hasIso = tileDoc.getFlag(MODULE_ID, 'isoLayer');
+            if (hasIso) continue;
+            const legacy = tileDoc.getFlag(MODULE_ID, 'OccludingTile');
+            const layer = legacy ? 'foreground' : 'background';
+            updates.push({ _id: tileDoc.id, [`flags.${MODULE_ID}.isoLayer`]: layer });
+        }
+        if (updates.length) canvas.scene.updateEmbeddedDocuments('Tile', updates);
 
+        // Migrate legacy OcclusionAlpha -> OpacityOnOccluding if new flag absent
+        const opMigrations = [];
+        for (const tile of canvas.tiles.placeables) {
+            const tileDoc = tile.document;
+            const hasNew = tileDoc.getFlag(MODULE_ID, 'OpacityOnOccluding');
+            if (hasNew !== undefined) continue;
+            const old = tileDoc.getFlag(MODULE_ID, 'OcclusionAlpha');
+            if (old !== undefined && old !== null && old !== 1) {
+                opMigrations.push({ _id: tileDoc.id, [`flags.${MODULE_ID}.OpacityOnOccluding`]: clamp01(old) });
+            }
+        }
+        if (opMigrations.length) canvas.scene.updateEmbeddedDocuments('Tile', opMigrations);
+    } catch (e) { if (DEBUG_PRINT) console.warn('Iso layer migration failed', e); }
+}
 
+function initializeNewTileFlags(tile) {
+    try { if (!tile.getFlag(MODULE_ID, 'isoLayer')) tile.setFlag(MODULE_ID, 'isoLayer', 'foreground'); } catch { }
+    try { tile.setFlag(MODULE_ID, 'linkedWallIds', []); } catch { }
+    try { tile.setFlag(MODULE_ID, 'OcclusionAlpha', 1); } catch { }
+    try { tile.setFlag(MODULE_ID, 'seenBy', []); } catch { }
+}
 
+async function handleTileUpdate(tileDocument, change) {
+    try {
+        if ('flags' in change && MODULE_ID in change.flags) {
+            const currentFlags = change.flags[MODULE_ID] ?? {};
+            if ('linkedWallIds' in currentFlags) {
+                const validArray = ensureWallIdsArray(currentFlags.linkedWallIds);
+                await tileDocument.setFlag(MODULE_ID, 'linkedWallIds', validArray);
+            }
+            if ('OcclusionAlpha' in currentFlags) {
+                const v = clamp01(currentFlags.OcclusionAlpha);
+                await tileDocument.setFlag(MODULE_ID, 'OcclusionAlpha', v);
+            }
+            if ('isoLayer' in currentFlags) {
+                const v = currentFlags.isoLayer === 'background' ? 'background' : 'foreground';
+                await tileDocument.setFlag(MODULE_ID, 'isoLayer', v);
+            }
+        }
+    } catch { }
+    updateAlwaysVisibleElements();
+}
 
-// Adicione esta função
-function debugVisualIntersection(token, tile, DEBUG_INTERSECTION) {
-		if (!DEBUG_INTERSECTION) return;
+function handleControlToken(token, controlled) {
+    if (controlled) lastControlledToken = token; else {
+        // If no tokens remain controlled, clear lastControlledToken so we fall back to all tokens view
+        const stillControlled = canvas.tokens.controlled.length; // includes this one before removal? event fires after change
+        if (!stillControlled) lastControlledToken = null;
+    }
+    updateAlwaysVisibleElements();
+    // After rebuild, reapply per-token opacity (already done inside updateLayerOpacity, but ensure immediate)
+    updateLayerOpacity(foreground);
+}
 
-		// Create unique identifier for this token-tile pair
-		const debugId = `debug-${token.id}-${tile.id}`;
+function handleUpdateToken(tokenDocument) {
+    if (lastControlledToken && tokenDocument.id === lastControlledToken.id) {
+        lastControlledToken = canvas.tokens.get(tokenDocument.id);
+    }
+    updateAlwaysVisibleElements();
+    updateLayerOpacity(foreground);
+}
 
-		// Remove old debug graphics for this specific pair
-		const existingDebug = canvas.stage.children.find(c => c.name === debugId);
-		if (existingDebug) {
-				canvas.stage.removeChild(existingDebug);
-				existingDebug.destroy();
-		}
+function handleDeleteToken(token) {
+    if (lastControlledToken && token.id === lastControlledToken.id) lastControlledToken = null;
+    updateAlwaysVisibleElements();
+}
 
-		// Get bounds
-		const tokenBounds = token.mesh.getBounds();
-		const tileBounds = tile.mesh.getBounds();
+function handleUpdateWallDoorState(wallDocument, change) {
+    if (!('ds' in change)) return; // door state change only
+    const linkedTiles = canvas.tiles.placeables.filter(tile => {
+        const walls = getLinkedWalls(tile);
+        return walls.some(w => w && w.id === wallDocument.id);
+    });
+    if (linkedTiles.length) updateAlwaysVisibleElements();
+}
 
-		// Check if there's an intersection at all
-		const hasIntersection = (
-				tokenBounds.x < tileBounds.x + tileBounds.width &&
-				tokenBounds.x + tokenBounds.width > tileBounds.x &&
-				tokenBounds.y < tileBounds.y + tileBounds.height &&
-				tokenBounds.y + tokenBounds.height > tileBounds.y
-		);
+function updateLayerOpacity(layer) {
+    if (!layer) return;
+    // Determine viewpoint tokens: if any controlled -> those; else if lastControlledToken still set (legacy) -> that; else all visible tokens
+    let viewTokens = [];
+    const controlled = canvas.tokens.controlled.filter(t => !!t.visible);
+    if (controlled.length) viewTokens = controlled;
+    else if (lastControlledToken && lastControlledToken.visible) viewTokens = [lastControlledToken];
+    else viewTokens = canvas.tokens.placeables.filter(t => t.visible);
+    const tokenPositions = viewTokens.map(token => ({ x: token.document.x, y: token.document.y }));
+    layer.children.forEach(sprite => {
+        let alpha = typeof sprite.baseAlpha === 'number' ? sprite.baseAlpha : sprite.alpha ?? 1;
+        const group = sprite.opacityGroup === 'tokens' ? 'tokens' : 'tiles';
+        // Apply per-token occluding opacity if any viewpoint token exists (union rule)
+        if (group === 'tiles' && tokenPositions.length && sprite.originalTile) {
+            try {
+                const tileDoc = sprite.originalTile.document;
+                const tileX = tileDoc.x;
+                const tileBottomY = tileDoc.y + tileDoc.height - 0.0001;
+                let occludesAny = false;
+                for (const pos of tokenPositions) {
+                    if (tileX <= pos.x && tileBottomY >= pos.y) { occludesAny = true; break; }
+                }
+                if (occludesAny) {
+                    const perFlag = tileDoc.getFlag(MODULE_ID, 'OpacityOnOccluding');
+                    if (perFlag !== undefined) alpha = alpha * clamp01(perFlag);
+                }
+            } catch { }
+        }
+        sprite.alpha = alpha;
+    });
+}
 
-		// If no intersection, just remove the debug and return
-		if (!hasIntersection) {
-				return;
-		}
+function cloneTileSprite(tilePlaceable) {
+    const mesh = tilePlaceable?.mesh;
+    if (!mesh) return null;
+    const sprite = new PIXI.Sprite(mesh.texture);
+    sprite.position.set(mesh.position.x, mesh.position.y);
+    sprite.anchor.set(mesh.anchor.x, mesh.anchor.y);
+    sprite.angle = mesh.angle;
+    try { sprite.rotation = mesh.rotation; if (mesh.skew) sprite.skew.set(mesh.skew.x, mesh.skew.y); } catch { }
+    try { sprite.scale.set(mesh.scale.x, mesh.scale.y); } catch { sprite.scale.set(1, 1); }
+    const tileDocAlpha = typeof tilePlaceable?.document?.alpha === 'number' ? tilePlaceable.document.alpha : 1;
+    sprite.baseAlpha = tileDocAlpha; // store document alpha only
+    sprite.alpha = tileDocAlpha; // initial alpha; may be reduced per view token later
+    sprite.opacityGroup = 'tiles';
+    sprite.eventMode = 'passive';
+    sprite.originalTile = tilePlaceable;
 
-		// Calculate centers
-		const tokenCenter = {
-				x: tokenBounds.x + (tokenBounds.width / 2),
-				y: tokenBounds.y + (tokenBounds.height / 2)
-		};
-    
-		const tileCenter = {
-				x: tileBounds.x + (tileBounds.width / 2),
-				y: tileBounds.y + (tileBounds.height / 2)
-		};
+    // Set of token IDs that have seen this tile
+    // If the original tile was never seen before use a new set
+    if (!sprite.originalTile.seenBy) {
+        sprite.originalTile.seenBy = new Set();
+    }
 
-		// Create new debug graphics with unique identifier
-		const graphics = new PIXI.Graphics();
-		graphics.name = debugId;
+    return sprite;
+}
 
-		// Draw tile bounds (red)
-		graphics.lineStyle(2, 0xFF0000, 1);
-		graphics.drawRect(tileBounds.x, tileBounds.y, tileBounds.width, tileBounds.height);
-    
-		// Draw tile center (red dot)
-		graphics.beginFill(0xFF0000);
-		graphics.drawCircle(tileCenter.x, tileCenter.y, 5);
-		graphics.endFill();
+function cloneTokenSprite(token) {
+    try {
+        const mesh = token?.mesh;
+        if (!mesh || !mesh.texture) {
+            if (DEBUG_PRINT) console.warn('cloneTokenSprite: token mesh/texture missing', token?.id);
+            return null;
+        }
+        const sprite = new PIXI.Sprite(mesh.texture);
+        // replicate transforms
+        sprite.position.set(mesh.position.x, mesh.position.y);
+        sprite.anchor.set(mesh.anchor?.x ?? 0.5, mesh.anchor?.y ?? 0.5);
+        sprite.angle = mesh.angle ?? token.angle ?? 0;
+        try { sprite.rotation = mesh.rotation; if (mesh.skew) sprite.skew.set(mesh.skew.x, mesh.skew.y); } catch { }
+        try { sprite.scale.set(mesh.scale.x, mesh.scale.y); } catch { sprite.scale.set(1, 1); }
+        const tokenAlpha = typeof token.alpha === 'number' ? token.alpha : 1;
+        sprite.baseAlpha = tokenAlpha;
+        sprite.alpha = tokenAlpha;
+        sprite.opacityGroup = 'tokens';
+        sprite.eventMode = 'passive';
+        sprite.originalToken = token;
+        // Mirror Foundry visibility (covers hidden, vision-based, permission-based). If token.visible is false, hide clone.
+        try { sprite.visible = !!token.visible; } catch { sprite.visible = true; }
+        try { token.mesh.alpha = 0; } catch { }
+        return sprite;
+    } catch (e) {
+        if (DEBUG_PRINT) console.warn('cloneTokenSprite failed', e);
+        return null;
+    }
+}
 
-		// Draw token bounds (blue)
-		graphics.lineStyle(2, 0x0000FF, 1);
-		graphics.drawRect(tokenBounds.x, tokenBounds.y, tokenBounds.width, tokenBounds.height);
-    
-		// Draw token center (blue dot)
-		graphics.beginFill(0x0000FF);
-		graphics.drawCircle(tokenCenter.x, tokenCenter.y, 5);
-		graphics.endFill();
+function collectTileEntries() {
+    const backgroundTileDocs = [];
+    const foregroundTileEntries = [];
+    for (const tile of canvas.tiles.placeables) {
+        if (!tile?.mesh) continue;
+        let layer = tile.document.getFlag(MODULE_ID, 'isoLayer');
+        if (layer !== 'background' && layer !== 'foreground') layer = 'foreground';
+        const sort = Number(tile.document.sort) || 0;
+        // Door-open hide: if any linked wall is a door (door>0) whose state is open (ds===1), hide tile art
+        let hideForOpenDoor = false;
+        try {
+            const linkedIds = ensureWallIdsArray(tile.document.getFlag(MODULE_ID, 'linkedWallIds'));
+            if (linkedIds.length) {
+                for (const wid of linkedIds) {
+                    const wall = canvas.walls.get(wid);
+                    const wdoc = wall?.document;
+                    if (!wdoc) continue;
+                    const isDoor = Number(wdoc.door) > 0; // 1=door,2=secret
+                    const isOpen = Number(wdoc.ds) === 1; // 1=open
+                    if (isDoor && isOpen) { hideForOpenDoor = true; break; }
+                }
+            }
+        } catch { }
+        if (layer === 'background') {
+            try {
+                const baseAlpha = (typeof tile.document.alpha === 'number') ? tile.document.alpha : 1;
+                tile.mesh.alpha = hideForOpenDoor ? 0 : baseAlpha;
+            } catch { }
+            if (!hideForOpenDoor) backgroundTileDocs.push(tile); // if hidden we omit from debug ordering of background
+        } else {
+            if (hideForOpenDoor) {
+                try { tile.mesh.alpha = 0; } catch { }
+                continue; // skip cloning entirely while hidden
+            }
+            const clone = cloneTileSprite(tile);
+            if (!clone) continue;
+            try { tile.mesh.alpha = 0; } catch { }
+            foregroundTileEntries.push({ sort, sprite: clone, tile });
+        }
+    }
+    return { backgroundTileDocs, foregroundTileEntries };
+}
 
-		// Draw line between centers (green if valid, yellow if invalid)
-		const isValid = tokenCenter.x > tileCenter.x && tokenCenter.y > tileCenter.y;
-		graphics.lineStyle(2, isValid ? 0x00FF00 : 0xFFFF00, 1);
-		graphics.moveTo(tileCenter.x, tileCenter.y);
-		graphics.lineTo(tokenCenter.x, tokenCenter.y);
+function assignTileDepths(foregroundTileEntries) {
+    const bySort = new Map();
+    for (const tile of foregroundTileEntries) {
+        if (!bySort.has(tile.sort)) bySort.set(tile.sort, []);
+        bySort.get(tile.sort).push(tile);
+    }
+    for (const [sortValue, arr] of bySort.entries()) {
+        arr.sort((a, b) => {
+            const ay = a.tile.document.y + a.tile.document.height;
+            const by = b.tile.document.y + b.tile.document.height;
+            if (ay !== by) return ay - by;
+            const ax = a.tile.document.x;
+            const bx = b.tile.document.x;
+            return ax - bx;
+        });
+        const base = sortValue * TILE_STRIDE;
+        const margin = 100;
+        const usableSpan = TILE_STRIDE - margin * 2;
+        const step = Math.max(1, Math.floor(usableSpan / (arr.length + 1)));
+        let offset = margin;
+        for (const entry of arr) {
+            entry.depth = base + offset;
+            offset += step;
+        }
+    }
+}
 
-		// Add text labels
-		const style = new PIXI.TextStyle({
-				fontSize: 12,
-				fill: '#FFFFFF',
-				stroke: '#000000',
-				strokeThickness: 2
-		});
+function computeTokenEntries(foregroundTileEntries) {
+    const tokenEntries = [];
+    const tokenDepthMap = new Map();
+    for (const token of canvas.tokens.placeables) {
+        if (!token) continue;
+        const tokenIsVisible = !!token.visible;
+        const tokenX = token.document.x;
+        const tokenY = token.document.y;
+        let minOccludingDepth = Infinity;
+        let maxNonOccludingDepth = -Infinity;
+        for (const tile of foregroundTileEntries) {
+            const tileDoc = tile.tile.document;
+            const tileX = tileDoc.x;
+            const tileY = tileDoc.y + tileDoc.height - 0.0001;
+            const occludes = (tileX <= tokenX) && (tileY >= tokenY);
+            if (occludes) {
+                if (tile.depth < minOccludingDepth) minOccludingDepth = tile.depth;
+            } else {
+                if (tile.depth > maxNonOccludingDepth) maxNonOccludingDepth = tile.depth;
+            }
+        }
+        let depth;
+        if (minOccludingDepth === Infinity) depth = (maxNonOccludingDepth === -Infinity) ? 0 : (maxNonOccludingDepth + 1);
+        else if (maxNonOccludingDepth < minOccludingDepth) depth = (maxNonOccludingDepth + minOccludingDepth) / 2;
+        else depth = minOccludingDepth - 1;
+        const clone = cloneTokenSprite(token);
+        if (clone) {
+            if (!tokenIsVisible) clone.visible = false;
+            tokenEntries.push({ depth, sprite: clone, token, visible: tokenIsVisible, baseDepth: depth });
+        }
+        if (tokenIsVisible) tokenDepthMap.set(token.id, depth);
+    }
+    return { tokenEntries, tokenDepthMap };
+}
 
-		const tokenText = new PIXI.Text(`Token (${token.id})`, style);
-		tokenText.position.set(tokenCenter.x + 10, tokenCenter.y + 10);
-		graphics.addChild(tokenText);
+function refineTokenOrdering(tokenEntries, tokenDepthMap) {
+    if (tokenEntries.length <= 1) return;
+    tokenEntries.sort((a, b) => {
+        if (a === b) return 0;
+        const ax = a.token.document.x; const ay = a.token.document.y;
+        const bx = b.token.document.x; const by = b.token.document.y;
+        const aOccludesB = (ax <= bx) && (ay >= by);
+        const bOccludesA = (bx <= ax) && (by >= ay);
+        if (aOccludesB && !bOccludesA) return 1;
+        if (bOccludesA && !aOccludesB) return -1;
+        if (a.baseDepth !== b.baseDepth) return a.baseDepth - b.baseDepth;
+        if (ay !== by) return ay - by;
+        return ax - bx;
+    });
+    const EPS = 0.0001;
+    for (let i = 0; i < tokenEntries.length; i++) {
+        tokenEntries[i].depth = tokenEntries[i].baseDepth + (i * EPS);
+        const id = tokenEntries[i].token.id;
+        if (tokenDepthMap.has(id)) tokenDepthMap.set(id, tokenEntries[i].depth);
+    }
+}
 
-		const tileText = new PIXI.Text(`Tile (${tile.id})`, style);
-		tileText.position.set(tileCenter.x + 10, tileCenter.y + 10);
-		graphics.addChild(tileText);
+function renderForeground(foregroundTileEntries, tokenEntries) {
+    const foregroundElements = [...foregroundTileEntries, ...tokenEntries];
+    foregroundElements.sort((a, b) => a.depth - b.depth);
+    for (const element of foregroundElements) {
+        element.sprite.zIndex = element.depth;
+        foreground.addChild(element.sprite);
+    }
+}
 
-		// Add to canvas stage with high z-index
-		graphics.zIndex = 999999;
-		canvas.stage.addChild(graphics);
+function buildDebugPlan(foregroundTileEntries, backgroundTileDocs, tokenDepthMap) {
+    if (!DEBUG_PRINT) return;
+    try {
+        const plan = { debugTiles: [], debugTokens: [] };
+        // Match updateLayerOpacity viewpoint logic for debug occlusion flag
+        let viewTokens = [];
+        const controlled = canvas.tokens.controlled.filter(t => !!t.visible);
+        if (controlled.length) viewTokens = controlled;
+        else if (lastControlledToken && lastControlledToken.visible) viewTokens = [lastControlledToken];
+        else viewTokens = canvas.tokens.placeables.filter(t => t.visible);
+        const tokenPositions = viewTokens.map(token => ({ x: token.document.x, y: token.document.y }));
+        for (const tileEntry of foregroundTileEntries) {
+            const tile = tileEntry.tile; if (!tile?.mesh) continue;
+            const { gx, gy } = getTileBottomCornerGridXY(tile);
+            const applied = Math.round(tileEntry.depth);
+            let occ = false;
+            if (tokenPositions.length) {
+                const tdoc = tile.document;
+                const tileX = tdoc.x;
+                const tileBottomY = tdoc.y + tdoc.height - 0.0001;
+                for (const pos of tokenPositions) { if (tileX <= pos.x && tileBottomY >= pos.y) { occ = true; break; } }
+            }
+            plan.debugTiles.push({ gx, gy, sort: applied, px: tile.document.x, py: tile.document.y + tile.document.height, occ });
+        }
+        for (const tile of backgroundTileDocs) {
+            if (!tile?.mesh) continue;
+            const { gx, gy } = getTileBottomCornerGridXY(tile);
+            const applied = Number(tile.document.sort) || 0;
+            plan.debugTiles.push({ gx, gy, sort: applied, px: tile.document.x, py: tile.document.y + tile.document.height });
+        }
+        for (const token of canvas.tokens.placeables) {
+            if (!token || !token.visible) continue;
+            const { gx, gy } = getTokenGridXY(token);
+            const tokenDoc = token.document;
+            const gridSize = canvas.grid?.size || 1;
+            const w = (Number(tokenDoc.width) || 1) * gridSize;
+            const h = (Number(tokenDoc.height) || 1) * gridSize;
+            const px = Number(tokenDoc.x) + w * 0.5;
+            const py = Number(tokenDoc.y) + h;
+            const depth = tokenDepthMap.get(token.id);
+            if (depth !== undefined) plan.debugTokens.push({ gx, gy, sort: Math.round(depth), px, py });
+        }
+        addDebugOverlays(plan);
+    } catch (e) { if (DEBUG_PRINT) console.warn('addDebugOverlays failed', e); }
+}
+
+function updateAlwaysVisibleElements() {
+    if (!canvas.ready || !foreground) return;
+    foreground.removeChildren();
+    const { backgroundTileDocs, foregroundTileEntries } = collectTileEntries();
+    assignTileDepths(foregroundTileEntries);
+    const { tokenEntries, tokenDepthMap } = computeTokenEntries(foregroundTileEntries);
+    refineTokenOrdering(tokenEntries, tokenDepthMap);
+    renderForeground(foregroundTileEntries, tokenEntries);
+    applyVisibilityCulling(foregroundTileEntries, tokenEntries);
+    updateLayerOpacity(foreground);
+    buildDebugPlan(foregroundTileEntries, backgroundTileDocs, tokenDepthMap);
+}
+
+// Corner-based visibility culling: hide cloned foreground tiles and token clones if none of their corners
+// are in LOS of any player-observed token (or controlled tokens). Applies only if setting enabled.
+function applyVisibilityCulling(foregroundTileEntries, tokenEntries) {
+    try {
+        if (!game.settings.get(MODULE_ID, 'enableCornerVisibilityCulling')) return;
+
+        // Gather viewer tokens (controlled or owned & visible)
+        let viewers = canvas.tokens.controlled.filter(t => t.visible);
+
+        if (!viewers.length) viewers = canvas.tokens.placeables.filter(t => t.visible && t.actor?.hasPlayerOwner);
+        if (!viewers.length) return; // nothing to compare
+
+        const viewerIds = new Set(viewers.map(v => v.id));
+        const gridSize = canvas.grid?.size || 1;
+
+        const testVisibility = (x, y) => {
+            try {
+                if (!canvas?.visibility?.testVisibility) return true; // fallback: do not hide
+                for (const v of viewers) {
+                    if (canvas.visibility?.testVisibility({ x, y }, { object: v })) return true;
+                }
+            } catch { return true; }
+            return false;
+        };
+        const testPerimeter = (x, y, w, h) => {
+
+            // Grab the grid size
+            const gridSize = canvas.grid?.size || 1;
+
+            const pts = []
+            for (let i = 0; i <= w; i += gridSize) pts.push([x + i, y]);
+            for (let i = 0; i <= w; i += gridSize) pts.push([x + i, y + h]);
+            for (let j = 0; j <= h; j += gridSize) pts.push([x, y + j]);
+            for (let j = 0; j <= h; j += gridSize) pts.push([x + w, y + j]);
+
+            for (const [px, py] of pts) if (testVisibility(px + 0.001, py + 0.001)) return true;
+            return false;
+        };
+        const testLine = (x1, y1, x2, y2) => {
+
+            // Grab the grid size
+            const gridSize = canvas.grid?.size || 1;
+            const length = Math.hypot(x2 - x1, y2 - y1);
+            const steps = Math.ceil(length / gridSize);
+            const dx = (x2 - x1) / steps;
+            const dy = (y2 - y1) / steps;
+
+            const pts = []
+            for (let i = 0; i <= steps; i++) {
+                const x = x1 + dx * i;
+                const y = y1 + dy * i;
+                pts.push([x, y]);
+            }
+
+            for (const [px, py] of pts) if (testVisibility(px + 0.001, py + 0.001)) return true;
+            return false;
+        };
+
+        // Cull tiles (foreground clones only)
+        for (const entry of foregroundTileEntries) {
+
+            // Test tile's visibility based on its perimeter
+            const tile = entry.tile;
+            const tileDoc = tile.document;
+            let currentlyVisible = testPerimeter(tileDoc.x, tileDoc.y, tileDoc.width, tileDoc.height);
+
+            // Test tile's visibility based on its walls vertices
+            if (!currentlyVisible) {
+                const walls = getLinkedWalls(tile);
+                for (const wall of walls) {
+                    const x1 = wall.document.c[0];
+                    const y1 = wall.document.c[1];
+                    const x2 = wall.document.c[2];
+                    const y2 = wall.document.c[3];
+
+                    const wallVisible = testLine(x1, y1, x2, y2);
+                    if (wallVisible) {
+                        currentlyVisible = true;
+                        break;
+                    }
+                }
+            }
+
+            if (currentlyVisible) {
+                markSeenBy(tile, viewers);
+                viewers.forEach(v => tile.seenBy.add(v.id));
+                entry.sprite.visible = true;
+                entry.sprite.filters = [];
+            }
+            else {
+                const fogExploration = canvas.fog?.fogExploration === true;
+
+                let seenBy = getSeenBy(tile);
+
+                // If we want a fog exploration shared by all tokens
+                //if (fogExploration && tile.seenBy.size) 
+
+                // If we want a per-token fog exploration (regarding tiles)
+                const intersection = seenBy.filter(id => viewerIds.has(id));
+                if (fogExploration && intersection.size) {
+                    entry.sprite.visible = true;
+                    entry.sprite.filters = [fogFilter];
+                }
+                else {
+                    entry.sprite.visible = false;
+                }
+            }
+        }
+
+        // Cull token clones unless they are viewer tokens themselves (always visible)
+        for (const entry of tokenEntries) {
+            const token = entry.token; const tokenDoc = token.document;
+            if (viewerIds.has(token.id)) {
+                entry.sprite.visible = true;
+                continue;
+            }
+            const w = (tokenDoc.width || 1) * gridSize; const h = (tokenDoc.height || 1) * gridSize;
+            const visible = testPerimeter(tokenDoc.x, tokenDoc.y, w, h);
+            entry.sprite.visible = visible;
+        }
+    } catch (e) { if (DEBUG_PRINT) console.warn('applyCornerVisibilityCulling failed', e); }
+}
+
+function getLinkedWalls(tile) {
+    if (!tile || !tile.document) return [];
+    const linkedWallIds = ensureWallIdsArray(tile.document.getFlag(MODULE_ID, 'linkedWallIds'));
+    return linkedWallIds.map(id => canvas.walls.get(id)).filter(Boolean);
+}
+
+// Grid helpers and rule: a token (gx, gy) is occluded by a tile whose bottom-corner grid is (tx, ty)
+// iff gx > tx AND gy > ty. We use gx+gy as a depth index for token z ordering.
+function getTokenGridXY(token) {
+    const gridSize = canvas.grid?.size || 1;
+    // Use token.center as reference for grid position
+    const gx = Math.floor(token.center.x / gridSize);
+    const gy = Math.floor(token.center.y / gridSize);
+    return { gx, gy };
+}
+
+function getTileBottomCornerGridXY(tile) {
+    const gridSize = canvas.grid?.size || 1;
+    // Bottom-left in top-down corresponds to bottom corner in isometric tile art
+    // Use the tile bottom-left in scene coordinates: (x, y + height)
+    const x = tile.document.x;
+    // Subtract a tiny epsilon so a tile whose bottom edge lies exactly on a grid line
+    // is classified into the cell above, matching token centers standing on it.
+    const yBottomEdge = tile.document.y + tile.document.height - 0.0001;
+    const gx = Math.floor(x / gridSize);
+    const gy = Math.floor(yBottomEdge / gridSize);
+    return { gx, gy };
 }

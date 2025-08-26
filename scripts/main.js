@@ -3,13 +3,11 @@ import { registerTokenConfig } from './token.js';
 import { registerTileConfig } from './tile.js';
 import { registerHUDConfig } from './hud.js';
 import { registerSortingConfig } from './autosorting.js';
-import { registerDynamicTileConfig } from './dynamictile.js';
+import { registerOcclusionConfig } from './occlusion.js';
 import { applyIsometricPerspective, applyBackgroundTransformation } from './transform.js';
 import { ISOMETRIC_CONST } from './consts.js';
 import { isoToCartesian, cartesianToIso } from './utils.js';
 import { registerOverlayHooks } from './overlay.js';
-
-import { registerOcclusionConfig } from './occlusion.js';
 import { registerTilePresetStorage } from './presets.js';
 
 // ---------- CONSTANTS ----------
@@ -166,9 +164,9 @@ Hooks.once("init", function() {
   registerOverlayHooks();
   
   // Additional module features
-  registerDynamicTileConfig();
-  registerSortingConfig();
   registerOcclusionConfig();
+  registerSortingConfig();
+  // registerOcclusionConfig();
   registerTilePresetStorage(); // Step 1: hidden storage for tile presets
 
   // Define global debug flags
