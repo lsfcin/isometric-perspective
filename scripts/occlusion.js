@@ -576,29 +576,28 @@ function applyVisibilityCulling(foregroundTileEntries, tokenEntries) {
                 }
             }
 
+            const seenBy = getSeenBy(tile);
+            const hideOnFog = tile.document.getFlag(MODULE_ID, 'hideOnFog') ?? false;
+            const intersection = seenBy.filter(id => viewerIds.has(id));
+            const fogExploration = canvas.fog?.fogExploration === true;
+            
+            // Visible now, render normally without filters
             if (currentlyVisible) {
                 markSeenBy(tile, viewers);
                 viewers.forEach(v => tile.seenBy.add(v.id));
                 entry.sprite.visible = true;
                 entry.sprite.filters = [];
             }
-            else {
-                const fogExploration = canvas.fog?.fogExploration === true;
-
-                let seenBy = getSeenBy(tile);
-
-                // If we want a fog exploration shared by all tokens
-                //if (fogExploration && tile.seenBy.size) 
-
-                // If we want a per-token fog exploration (regarding tiles)
-                const intersection = seenBy.filter(id => viewerIds.has(id));
-                if (fogExploration && intersection.size) {
-                    entry.sprite.visible = true;
-                    entry.sprite.filters = [fogFilter];
-                }
-                else {
-                    entry.sprite.visible = false;
-                }
+            // On fog and fog active, render with fog filter
+            else if (!currentlyVisible && !hideOnFog && fogExploration && intersection.size) 
+            {
+                entry.sprite.visible = true;
+                entry.sprite.filters = [fogFilter];
+            }
+            // Not currently visible and not on fog (or not renderable on fog), hide the tile
+            else 
+            {
+                entry.sprite.visible = false;
             }
         }
 

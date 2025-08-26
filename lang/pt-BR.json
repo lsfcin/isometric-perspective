@@ -57,24 +57,29 @@
     "isometric-perspective.__comment6": "Configuração de Tiles",
     "isometric-perspective.tile_enableIsometric_name": "Desabilitar Tile Isométrico",
     "isometric-perspective.tile_enableIsometric_hint": "Desabilita a transformação isométrica neste tile.",
+    
     "isometric-perspective.tile_artOffset_name": "Deslocamento da Arte",
     "isometric-perspective.tile_artOffset_hint": "Desloca a posição da arte do tile no número de pixels indicado.",
     "isometric-perspective.tile_artOffset_mouseover": "Segure e arraste para ajustar X e Y",
+    
     "isometric-perspective.tile_scale_name": "Escala Isométrica",
     "isometric-perspective.tile_scale_hint": "Ajusta a escala da arte do tile no modo isométrico (0.01x a 3x).",
+    
     "isometric-perspective.tile_flip_name": "Espelhar Tile",
     "isometric-perspective.tile_flip_hint": "Inverte horizontalmente a arte do tile. Funciona apenas com a transformação isométrica ativa.",
+    
     "isometric-perspective.tile_occluding_name": "Ocultar Tokens",
     "isometric-perspective.tile_occluding_hint": "Se marcado, este tile oculta tokens com um efeito de sombra projetada.",
     "isometric-perspective.tile_occlusion_opacity_name": "Opacidade de Oclusão",
     "isometric-perspective.tile_occlusion_opacity_hint": "Quando este tile ocultar tokens, use esta opacidade para a imagem do tile.",
+    
     "isometric-perspective.tile_link_wall_name": "Vincular Parede",
     "isometric-perspective.tile_link_wall_select_wall": "Selecionar Parede",
     "isometric-perspective.tile_link_wall_clear_wall": "Limpar Parede",
     "isometric-perspective.tile_link_wall_hint": "Clique no botão para selecionar uma parede. Ela será usada para determinar a visibilidade do tile com um token selecionado.",
     
-    "isometric-perspective.tile_preset_autouse_label": "Armazenar e Usar Preset",
-    "isometric-perspective.tile_preset_autouse_hint": "Armazena automaticamente alterações e aplica em novos tiles usando a mesma imagem.",
+    "isometric-perspective.tile_preset_autouse_label": "Armazenar Modificações",
+    "isometric-perspective.tile_preset_autouse_hint": "Armazena automaticamente alterações no tile e aplica em novos tiles que usam a mesma imagem.",
 
     "isometric-perspective.__comment7": "Avisos e Mensagens de Erro",
     "isometric-perspective.error_test": "Mensagem de erro de teste",

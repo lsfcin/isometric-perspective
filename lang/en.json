@@ -57,24 +57,32 @@
     "isometric-perspective.__comment6": "Tile Configuration",
     "isometric-perspective.tile_enableIsometric_name": "Disable Isometric Tile",
     "isometric-perspective.tile_enableIsometric_hint": "Disable isometric transformation on this tile.",
-    "isometric-perspective.tile_artOffset_name": "Art Offset",
+    
+    "isometric-perspective.tile_artOffset_name": "Isometric Image Offset",
     "isometric-perspective.tile_artOffset_hint": "Offset the tile art position in pixels.",
     "isometric-perspective.tile_artOffset_mouseover": "Hold and drag to fine-tune X and Y",
-    "isometric-perspective.tile_scale_name": "Isometric Scale",
-    "isometric-perspective.tile_scale_hint": "Adjust scale of tile art when in isometric perspective (0.01x to 3x).",
+    
+    "isometric-perspective.tile_scale_name": "Isometric Image Scale",
+    "isometric-perspective.tile_scale_hint": "Adjust scale of tile art when in isometric perspective (0.01x to 5x).",
+    
     "isometric-perspective.tile_flip_name": "Flip Tile",
     "isometric-perspective.tile_flip_hint": "Flip the tile art horizontally. Works only with isometric transformation on.",
+
+    "isometric-perspective.tile_hide_on_fog_name": "Hide on Fog",
+    "isometric-perspective.tile_hide_on_fog_hint": "This tile won't show in fog of war. For tiles that will be moved during a session.",
+
     "isometric-perspective.tile_occluding_name": "Occluding Tokens",
     "isometric-perspective.tile_occluding_hint": "If checked, this tile will hide tokens with a shadow effect.",
     "isometric-perspective.tile_occlusion_opacity_name": "Occlusion Opacity",
     "isometric-perspective.tile_occlusion_opacity_hint": "When this tile hides tokens, use this opacity for the tile image.",
+    
     "isometric-perspective.tile_link_wall_name": "Link Wall",
     "isometric-perspective.tile_link_wall_select_wall": "Select Wall",
     "isometric-perspective.tile_link_wall_clear_wall": "Clear Wall",
-    "isometric-perspective.tile_link_wall_hint": "Click the button to select a wall. This wall will be used to determine the tile's visibility with a selected token.",
+    "isometric-perspective.tile_link_wall_hint": "Click the button to select and attach a wall to this tile.",
     
-    "isometric-perspective.tile_preset_autouse_label": "Store and Use Preset",
-    "isometric-perspective.tile_preset_autouse_hint": "Automatically store changes and apply them to new tiles using the same image.",
+    "isometric-perspective.tile_preset_autouse_label": "Store Changes",
+    "isometric-perspective.tile_preset_autouse_hint": "Automatically store changes and apply to new tiles that use the same image.",
     
     "isometric-perspective.__comment7": "Warnings and Error Messages",
     "isometric-perspective.error_test": "Test error message",

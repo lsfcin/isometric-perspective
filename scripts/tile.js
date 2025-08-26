@@ -10,6 +10,7 @@ export function registerTileConfig() {
   Hooks.on("refreshTile", handleRefreshTile);
   Hooks.on("updateWall", handleUpdateWall);
   Hooks.on('getSceneControlButtons', injectTileLayerButtons);
+
   // Rebuild controls when a tile becomes selected OR when all tiles become deselected.
   // This keeps custom buttons visible only while at least one tile is selected, while avoiding
   // flicker during rapid selection switches (deselect old -> select new in same frame).
@@ -24,10 +25,10 @@ export function registerTileConfig() {
           try {
             const any = Array.from(canvas.tiles?.controlled || []).length > 0;
             if (!any) ui.controls.initialize();
-          } catch {}
+          } catch { }
         }, 40);
       }
-    } catch {}
+    } catch { }
   });
 
   // Track the raw drop point for tile creation so we can correct placement
@@ -36,19 +37,19 @@ export function registerTileConfig() {
       if (!data) return;
       const t = (data.type || '').toLowerCase();
       if (t === 'tile' || t === 'tiles') {
-  // Compute the bottom-left corner of the hovered grid cell and use that as the desired bottom-left.
-  // Rationale: user wants the tile rectangle to sit slightly below the cursor, aligned to the grid cell's bottom edge.
-  const rawX = Number(data.x) || 0;
-  const rawY = Number(data.y) || 0;
-  const gridSize = (canvas?.grid?.size) || (canvas?.dimensions?.size) || 1;
-  // Identify the cell containing the cursor
-  const cellX = Math.floor(rawX / gridSize);
-  const cellY = Math.floor(rawY / gridSize);
-  const snappedBLX = cellX * gridSize;            // left edge of cell
-  const snappedBLY = (cellY + 1) * gridSize;      // bottom edge of cell
-  lastTileDesiredBottomLeft = { x: snappedBLX, y: snappedBLY, ts: performance.now() };
+        // Compute the bottom-left corner of the hovered grid cell and use that as the desired bottom-left.
+        // Rationale: user wants the tile rectangle to sit slightly below the cursor, aligned to the grid cell's bottom edge.
+        const rawX = Number(data.x) || 0;
+        const rawY = Number(data.y) || 0;
+        const gridSize = (canvas?.grid?.size) || (canvas?.dimensions?.size) || 1;
+        // Identify the cell containing the cursor
+        const cellX = Math.floor(rawX / gridSize);
+        const cellY = Math.floor(rawY / gridSize);
+        const snappedBLX = cellX * gridSize;            // left edge of cell
+        const snappedBLY = (cellY + 1) * gridSize;      // bottom edge of cell
+        lastTileDesiredBottomLeft = { x: snappedBLX, y: snappedBLY, ts: performance.now() };
       }
-    } catch {}
+    } catch { }
   });
 }
 
@@ -61,7 +62,7 @@ function injectTileLayerButtons(controls) {
   if (!tilesCtl) return;
   // Determine isometric scene state
   let isIsoScene = false;
-  try { isIsoScene = !!(canvas?.scene?.getFlag(MODULE_ID, 'isometricEnabled') || game.settings.get(MODULE_ID, 'worldIsometricFlag')); } catch {}
+  try { isIsoScene = !!(canvas?.scene?.getFlag(MODULE_ID, 'isometricEnabled') || game.settings.get(MODULE_ID, 'worldIsometricFlag')); } catch { }
 
   // Always remove deprecated house/home icon if isometric scene
   if (isIsoScene) {
@@ -72,7 +73,7 @@ function injectTileLayerButtons(controls) {
         if (/fa-house|fa-home/i.test(icon)) return false;
         return true;
       });
-    } catch {}
+    } catch { }
   }
 
   const selTiles = Array.from(canvas.tiles?.controlled || []);
@@ -87,7 +88,7 @@ function injectTileLayerButtons(controls) {
       if (layer === 'background') hasBackground = true; else hasForeground = true;
       if (hasForeground && hasBackground) break;
     }
-  } catch {}
+  } catch { }
 
   const applyLayer = async (layer) => {
     const sel = Array.from(canvas.tiles?.controlled || []);
@@ -193,7 +194,7 @@ function injectTileLayerButtons(controls) {
       style.textContent = `#controls .control-tool[data-tool="iso-layer-background"].active,\n#controls .control-tool[data-tool="iso-layer-foreground"].active {\n  box-shadow: none !important;\n  border: none !important;\n  filter: brightness(1.35);\n}\n#controls .control-tool[data-tool="iso-layer-background"].active i,\n#controls .control-tool[data-tool="iso-layer-foreground"].active i {\n  text-shadow: 0 0 4px rgba(255,255,255,0.4);\n}`;
       document.head.appendChild(style);
     }
-  } catch {}
+  } catch { }
 }
 
 async function handleRenderTileConfig(app, html, data) {
@@ -203,8 +204,9 @@ async function handleRenderTileConfig(app, html, data) {
   // Carrega o template HTML para a nova aba
   const isoLayer = app.object.getFlag(MODULE_ID, 'isoLayer') || 'foreground';
   const tabHtml = await renderTemplate("modules/isometric-perspective/templates/tile-config.html", {
-  // Default should be unchecked/false so opening the config doesn't disable isometric tiles
-  isoDisabled: app.object.getFlag(MODULE_ID, 'isoTileDisabled') ?? 0,
+
+    // Default should be unchecked/false so opening the config doesn't disable isometric tiles
+    isoDisabled: app.object.getFlag(MODULE_ID, 'isoTileDisabled') ?? 0,
     scale: app.object.getFlag(MODULE_ID, 'scale') ?? 1,
     isFlipped: app.object.getFlag(MODULE_ID, 'tokenFlipped') ?? false,
     offsetX: app.object.getFlag(MODULE_ID, 'offsetX') ?? 0,
@@ -212,10 +214,12 @@ async function handleRenderTileConfig(app, html, data) {
     linkedWallIds: wallIdsString,
     isForeground: isoLayer !== 'background',
     isBackground: isoLayer === 'background',
+    hideOnFog: app.object.getFlag(MODULE_ID, 'hideOnFog') ?? false,
+
     // Retain legacy occlusion alpha only for foreground tiles for backward compatibility (hidden otherwise)
     occlusionAlpha: app.object.getFlag(MODULE_ID, 'OcclusionAlpha') ?? 1,
-  opacityOnOccluding: app.object.getFlag(MODULE_ID, 'OpacityOnOccluding') ?? 0.5,
-  useImagePreset: app.object.getFlag(MODULE_ID, 'useImagePreset') ?? true
+    opacityOnOccluding: app.object.getFlag(MODULE_ID, 'OpacityOnOccluding') ?? 0.5,
+    useImagePreset: app.object.getFlag(MODULE_ID, 'useImagePreset') ?? true
   });
 
   // Adiciona a nova aba ao menu
@@ -234,25 +238,23 @@ async function handleRenderTileConfig(app, html, data) {
   const flipCheckbox = html.find('input[name="flags.isometric-perspective.tokenFlipped"]');
   const linkedWallInput = html.find('input[name="flags.isometric-perspective.linkedWallIds"]');
   const layerSelect = html.find('select[name="flags.isometric-perspective.isoLayer"]');
-  const occAlphaSlider = html.find('input[name="flags.isometric-perspective.OcclusionAlpha"]');
-  const occAlphaGroup = html.find('.occlusion-alpha-group');
   const occOpacitySlider = html.find('input[name="flags.isometric-perspective.OpacityOnOccluding"]');
   const occOpacityGroup = html.find('.occluding-opacity-group');
+  const occHideOnFogGroup = html.find('.hide-on-fog-group');
+  const hideOnFogCheckbox = html.find('input[name="flags.isometric-perspective.hideOnFog"]');
+
   // Preset checkbox (declare early so we can set default before later code references)
   const usePresetCheckbox = html.find('input[name="flags.isometric-perspective.useImagePreset"]');
-  
+
   isoTileCheckbox.prop("checked", app.object.getFlag(MODULE_ID, "isoTileDisabled"));
   flipCheckbox.prop("checked", app.object.getFlag(MODULE_ID, "tokenFlipped"));
+  hideOnFogCheckbox.prop("checked", app.object.getFlag(MODULE_ID, "hideOnFog"));
   linkedWallInput.val(wallIdsString);
+
   // Apply defaults for Place Tile flow (flags may be undefined before creation)
-  const existingAlpha = app.object.getFlag(MODULE_ID, 'OcclusionAlpha');
   const existingUsePreset = app.object.getFlag(MODULE_ID, 'useImagePreset');
-  const alphaDefault = existingAlpha === undefined ? 1 : existingAlpha;
   const usePresetDefault = existingUsePreset === undefined ? true : existingUsePreset;
-  if (occAlphaSlider.length) occAlphaSlider.val(alphaDefault);
-  // Update displayed numeric label beside slider
-  const occAlphaValueSpan = occAlphaSlider.closest('.form-fields').find('.range-value');
-  occAlphaValueSpan.text(alphaDefault);
+
   // Initialize occluding opacity slider numeric label
   if (occOpacitySlider.length) {
     const existing = app.object.getFlag(MODULE_ID, 'OpacityOnOccluding');
@@ -269,64 +271,59 @@ async function handleRenderTileConfig(app, html, data) {
       const doc = app.object;
       const checked = flipCheckbox.prop('checked');
 
-  // Read current document values (authoritative) and compute flip around bottom-left
-  const offsetYEl = html.find('input[name="flags.isometric-perspective.offsetY"]');
-  const widthInput = html.find('input[name="width"]');
-  const heightInput = html.find('input[name="height"]');
-  const yInput = html.find('input[name="y"]');
+      // Read current document values (authoritative) and compute flip around bottom-left
+      const offsetYEl = html.find('input[name="flags.isometric-perspective.offsetY"]');
+      const widthInput = html.find('input[name="width"]');
+      const heightInput = html.find('input[name="height"]');
+      const yInput = html.find('input[name="y"]');
 
-  const curOffY = Number(doc.getFlag(MODULE_ID, 'offsetY')) || 0;
-  const w = Number(doc.width) || 0;
-  const h = Number(doc.height) || 0;
-  const yVal = Number(doc.y) || 0;
-  const newY = yVal + (h - w);
+      const curOffY = Number(doc.getFlag(MODULE_ID, 'offsetY')) || 0;
+      const w = Number(doc.width) || 0;
+      const h = Number(doc.height) || 0;
+      const yVal = Number(doc.y) || 0;
+      const newY = yVal + (h - w);
 
-    // Single document update so Foundry rebuilds the native manipulation rectangle immediately
-  const update = {
+      // Single document update so Foundry rebuilds the native manipulation rectangle immediately
+      const update = {
         width: h,
         height: w,
         y: newY,
         flags: {
           [MODULE_ID]: {
             tokenFlipped: checked,
-    offsetY: -curOffY
+            offsetY: -curOffY
           }
         }
       };
-  await doc.update(update);
+      await doc.update(update);
 
       // Reflect the updated values in the current form manually
-  offsetYEl.val((-curOffY).toFixed(0));
+      offsetYEl.val((-curOffY).toFixed(0));
       offsetYEl.trigger('change');
-  if (widthInput.length) widthInput.val(h);
-  if (heightInput.length) heightInput.val(w);
-  if (yInput.length) yInput.val(Number.isFinite(newY) ? String(newY) : String(doc.y));
+      if (widthInput.length) widthInput.val(h);
+      if (heightInput.length) heightInput.val(w);
+      if (yInput.length) yInput.val(Number.isFinite(newY) ? String(newY) : String(doc.y));
 
-  // Ensure the tile remains controlled so its frame is visible in the updated orientation
-  requestAnimationFrame(() => {
-    try {
-      const pl = doc.object;
-      if (pl?.control) pl.control({ releaseOthers: false, pan: false });
-    } catch {}
-  });
+      // Ensure the tile remains controlled so its frame is visible in the updated orientation
+      requestAnimationFrame(() => {
+        try {
+          const pl = doc.object;
+          if (pl?.control) pl.control({ releaseOthers: false, pan: false });
+        } catch { }
+      });
 
       // Ensure the Isometric tab remains active without a visible switch
       const tabs = app._tabs && app._tabs[0];
       if (tabs) tabs.activate('isometric');
-    } catch {}
+    } catch { }
   });
 
-  // Occlusion alpha live UI (update only the adjacent value span)
-  occAlphaSlider.on('input change', function() {
-    const container = $(this).closest('.form-fields');
-    container.find('.range-value').text(this.value);
-  });
   // Show/hide occlusion alpha group based on occluding checkbox (respect default)
   const syncOccGroup = () => {
     const layer = layerSelect.val();
     // Hide occlusion alpha when background (no occlusion effect); show only for foreground
-    occAlphaGroup.css('display', layer === 'foreground' ? 'flex' : 'none');
-  occOpacityGroup.css('display', layer === 'foreground' ? 'flex' : 'none');
+    occOpacityGroup.css('display', layer === 'foreground' ? 'flex' : 'none');
+    occHideOnFogGroup.css('display', layer === 'foreground' ? 'flex' : 'none');
   };
   syncOccGroup();
   layerSelect.on('change', () => syncOccGroup());
@@ -338,13 +335,13 @@ async function handleRenderTileConfig(app, html, data) {
 
   // Live update for Isometric Scale slider label near that slider only
   const scaleSlider = html.find('input[name="flags.isometric-perspective.scale"]');
-  scaleSlider.on('input change', function() {
+  scaleSlider.on('input change', function () {
     const container = $(this).closest('.form-fields');
     container.find('.range-value').text(this.value);
   });
 
   // Live update for occluding opacity slider label
-  occOpacitySlider.on('input change', function() {
+  occOpacitySlider.on('input change', function () {
     const container = $(this).closest('.form-fields');
     container.find('.range-value').text(this.value);
   });
@@ -367,22 +364,20 @@ async function handleRenderTileConfig(app, html, data) {
     try {
       const layer = layerSelect.val() === 'background' ? 'background' : 'foreground';
       await app.object.setFlag(MODULE_ID, 'isoLayer', layer);
-    } catch {}
-
-    // Persist occlusion alpha only if foreground
-    if (occAlphaSlider.length && layerSelect.val() === 'foreground') {
-      const v = Math.max(0, Math.min(1, parseFloat(occAlphaSlider.val())));
-      await app.object.setFlag(MODULE_ID, 'OcclusionAlpha', v);
-    } else {
-      try { await app.object.unsetFlag(MODULE_ID, 'OcclusionAlpha'); } catch {}
-    }
+    } catch { }
 
     // Persist per-token occluding opacity only if foreground
     if (occOpacitySlider.length && layerSelect.val() === 'foreground') {
       const v2 = Math.max(0, Math.min(1, parseFloat(occOpacitySlider.val())));
       await app.object.setFlag(MODULE_ID, 'OpacityOnOccluding', v2);
     } else {
-      try { await app.object.unsetFlag(MODULE_ID, 'OpacityOnOccluding'); } catch {}
+      try { await app.object.unsetFlag(MODULE_ID, 'OpacityOnOccluding'); } catch { }
+    }
+
+    if (html.find('input[name="flags.isometric-perspective.hideOnFog"]').prop("checked")) {
+      await app.object.setFlag(MODULE_ID, "hideOnFog", true);
+    } else {
+      await app.object.unsetFlag(MODULE_ID, "hideOnFog");
     }
 
     // Persist simplified auto preset usage opt-in
@@ -398,15 +393,15 @@ async function handleRenderTileConfig(app, html, data) {
       const wallIdsArray = wallIdsValue.split(',').map(id => id.trim()).filter(id => id);
       await app.object.setFlag(MODULE_ID, 'linkedWallIds', wallIdsArray);
 
-  // Ensure we also have anchors for any manually-entered IDs
-  try { await ensureAnchorsForWalls(app.object, wallIdsArray); }
-  catch (e) { if (DEBUG_PRINT) console.warn('ensureAnchorsForWalls failed', e); }
+      // Ensure we also have anchors for any manually-entered IDs
+      try { await ensureAnchorsForWalls(app.object, wallIdsArray); }
+      catch (e) { if (DEBUG_PRINT) console.warn('ensureAnchorsForWalls failed', e); }
     } else {
       await app.object.setFlag(MODULE_ID, 'linkedWallIds', []);
     }
 
-  // After all persistence, refresh controls so layer button highlight reflects any layer change.
-  try { if (canvas?.tiles?.controlled?.length) ui.controls.initialize(); } catch {}
+    // After all persistence, refresh controls so layer button highlight reflects any layer change.
+    try { if (canvas?.tiles?.controlled?.length) ui.controls.initialize(); } catch { }
   });
 
   // dynamictile.js event listeners for the buttons
@@ -442,7 +437,7 @@ async function handleRenderTileConfig(app, html, data) {
 
   html.find('button.clear-wall').click(async () => {
     await app.object.setFlag(MODULE_ID, 'linkedWallIds', []);
-  await app.object.setFlag(MODULE_ID, 'linkedWallAnchors', {});
+    await app.object.setFlag(MODULE_ID, 'linkedWallAnchors', {});
     html.find('input[name="flags.isometric-perspective.linkedWallIds"]').val('');
     requestAnimationFrame(() => {
       const tabs = app._tabs[0];
@@ -471,8 +466,8 @@ function handleCreateTile(tileDocument) {
       const usePreset = tileDocument.getFlag(MODULE_ID, 'useImagePreset');
       const needs = {};
       if (occluding === undefined) needs.OccludingTile = true;
-  // Foundry (or previous versions) may yield an initial stored alpha of 1; treat that as baseline and replace with our module default 0.8
-  if (alpha === undefined || alpha === 1) needs.OcclusionAlpha = 0.8;
+      // Foundry (or previous versions) may yield an initial stored alpha of 1; treat that as baseline and replace with our module default 0.8
+      if (alpha === undefined || alpha === 1) needs.OcclusionAlpha = 0.8;
       if (usePreset === undefined) needs.useImagePreset = true;
       if (Object.keys(needs).length) {
         await tileDocument.update({ flags: { [MODULE_ID]: needs } });
@@ -518,7 +513,7 @@ function handleCreateTile(tileDocument) {
 function handleUpdateTile(tileDocument, updateData, options, userId) {
   const tile = canvas.tiles.get(tileDocument.id);
   if (!tile) return;
-  
+
   const scene = tile.scene;
   const isSceneIsometric = scene.getFlag(MODULE_ID, "isometricEnabled");
   // Always reapply transform on any tile update to keep consistent isometric presentation
@@ -538,7 +533,7 @@ function handleUpdateTile(tileDocument, updateData, options, userId) {
       }
       // If layer changed, refresh controls so highlight updates even without reselecting
       if (updateData?.flags && updateData.flags[MODULE_ID] && ("isoLayer" in updateData.flags[MODULE_ID])) {
-        try { if (canvas?.tiles?.controlled?.length) ui.controls.initialize(); } catch {}
+        try { if (canvas?.tiles?.controlled?.length) ui.controls.initialize(); } catch { }
       }
     } catch (e) { if (DEBUG_PRINT) console.warn('updateLinkedWallsPositions error', e); }
   })();
@@ -583,19 +578,19 @@ function updateAdjustOffsetButton(html) {
     // Calculates the difference on x and y axes
     const deltaY = e.clientX - startX;
     const deltaX = startY - e.clientY;
-    
+
     // Fine tuning: every 10px of motion = 0.1 value 
     const adjustmentX = deltaX * 0.1;
     const adjustmentY = deltaY * 0.1;
-    
+
     // Calculates new values
     let newValueX = Math.round(originalValueX + adjustmentX);
     let newValueY = Math.round(originalValueY + adjustmentY);
-    
+
     // Rounding for 2 decimal places
     newValueX = Math.round(newValueX * 100) / 100;
     newValueY = Math.round(newValueY * 100) / 100;
-    
+
     // Updates anchor inputs
     offsetXInput.value = newValueX.toFixed(0);
     offsetYInput.value = newValueY.toFixed(0);
@@ -608,18 +603,18 @@ function updateAdjustOffsetButton(html) {
     isAdjusting = true;
     startX = e.clientX;
     startY = e.clientY;
-    
+
     // Obtains the original values ​​of offset inputs
     originalValueX = parseFloat(offsetXInput.value);
     originalValueY = parseFloat(offsetYInput.value);
-    
+
     // Add global listeners
     document.addEventListener('mousemove', applyAdjustment);
     document.addEventListener('mouseup', () => {
       isAdjusting = false;
       document.removeEventListener('mousemove', applyAdjustment);
     });
-    
+
     e.preventDefault();
   });
 }
@@ -725,7 +720,7 @@ async function bringSelectedTilesToFront() {
     if (!selected.length) return;
     const allSorts = canvas.tiles.placeables.map(t => typeof t.document?.sort === 'number' ? t.document.sort : 0);
     const maxSort = allSorts.length ? Math.max(...allSorts) : 0;
-    const ordered = selected.sort((a,b)=>(a.document.sort||0)-(b.document.sort||0));
+    const ordered = selected.sort((a, b) => (a.document.sort || 0) - (b.document.sort || 0));
     let next = maxSort + 1;
     const updates = ordered.map(t => ({ _id: t.document.id, sort: next++ }));
     await canvas.scene.updateEmbeddedDocuments('Tile', updates);
@@ -738,7 +733,7 @@ async function sendSelectedTilesToBack() {
     if (!selected.length) return;
     const allSorts = canvas.tiles.placeables.map(t => typeof t.document?.sort === 'number' ? t.document.sort : 0);
     const minSort = allSorts.length ? Math.min(...allSorts) : 0;
-    const ordered = selected.sort((a,b)=>(a.document.sort||0)-(b.document.sort||0));
+    const ordered = selected.sort((a, b) => (a.document.sort || 0) - (b.document.sort || 0));
     let start = minSort - ordered.length;
     const updates = ordered.map(t => ({ _id: t.document.id, sort: start++ }));
     await canvas.scene.updateEmbeddedDocuments('Tile', updates);
@@ -779,9 +774,9 @@ async function flipLinkedWallAnchorsHorizontally(tileDocument, wallIds) {
   for (const id of wallIds) {
     const rel = anchors[id];
     if (!rel) continue;
-  // Diagonal reflection: swap local normalized coordinates
-  const a = { dx: rel.a.dy, dy: rel.a.dx };
-  const b = { dx: rel.b.dy, dy: rel.b.dx };
+    // Diagonal reflection: swap local normalized coordinates
+    const a = { dx: rel.a.dy, dy: rel.a.dx };
+    const b = { dx: rel.b.dy, dy: rel.b.dx };
     anchors[id] = { a, b };
     mutated = true;
   }
