@@ -95,7 +95,6 @@ function registerFogOfWarHooks() {
 
     Hooks.on('resetFogOfWar', (fogManager, ...args) => {
         for (const tile of canvas.tiles.placeables) {
-            //tile.seenBy = new Set();
             tile.document.setFlag(MODULE_ID, 'seenBy', []);
         }
     });
@@ -233,15 +232,10 @@ function cloneTileSprite(tilePlaceable) {
     const tileDocAlpha = typeof tilePlaceable?.document?.alpha === 'number' ? tilePlaceable.document.alpha : 1;
     sprite.baseAlpha = tileDocAlpha; // store document alpha only
     sprite.alpha = tileDocAlpha; // initial alpha; may be reduced per view token later
+    sprite.tint = tilePlaceable.document.texture.tint;
     sprite.opacityGroup = 'tiles';
     sprite.eventMode = 'passive';
     sprite.originalTile = tilePlaceable;
-
-    // Set of token IDs that have seen this tile
-    // If the original tile was never seen before use a new set
-    if (!sprite.originalTile.seenBy) {
-        sprite.originalTile.seenBy = new Set();
-    }
 
     return sprite;
 }
@@ -590,9 +584,7 @@ function applyVisibilityCulling(foregroundTileEntries, tokenEntries) {
             // Visible now, render normally without filters
             if (currentlyVisible) {
                 markSeenBy(tile, viewers);
-                viewers.forEach(v => tile.seenBy.add(v.id));
                 entry.sprite.visible = true;
-                entry.sprite.filters = [];
             }
             // On fog and fog active, render with fog filter
             else if (!currentlyVisible && !hideOnFog && fogExploration && intersection.size) {
