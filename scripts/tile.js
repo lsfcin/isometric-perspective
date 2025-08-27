@@ -721,6 +721,7 @@ async function bringSelectedTilesToFront() {
     const ordered = selected.sort((a, b) => (a.document.sort || 0) - (b.document.sort || 0));
     let next = maxSort + 1;
     const updates = ordered.map(t => ({ _id: t.document.id, sort: next++ }));
+    console.log(updates);
     await canvas.scene.updateEmbeddedDocuments('Tile', updates);
   } catch (e) { if (DEBUG_PRINT) console.warn('bringSelectedTilesToFront failed', e); }
 }

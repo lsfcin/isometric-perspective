@@ -356,6 +356,9 @@ function computeTokenEntries(foregroundTileEntries) {
         const tokenY = token.document.y;
         let minOccludingDepth = Infinity;
         let maxNonOccludingDepth = -Infinity;
+        let zOffset = 0;
+
+        // First pass, find best depth for token
         for (const tile of foregroundTileEntries) {
             const tileDoc = tile.tile.document;
             const tileX = tileDoc.x;
@@ -370,7 +373,29 @@ function computeTokenEntries(foregroundTileEntries) {
         let depth;
         if (minOccludingDepth === Infinity) depth = (maxNonOccludingDepth === -Infinity) ? 0 : (maxNonOccludingDepth + 1);
         else if (maxNonOccludingDepth < minOccludingDepth) depth = (maxNonOccludingDepth + minOccludingDepth) / 2;
-        else depth = minOccludingDepth - 1;
+        else depth = maxNonOccludingDepth + 1;
+
+        // Second pass, shift z of tiles wrongfully placed behind token
+        for (const tile of foregroundTileEntries) {
+            const tileDoc = tile.tile.document;
+            const tileX = tileDoc.x;
+            const tileY = tileDoc.y + tileDoc.height - 0.0001;
+            const occludes = (tileX <= tokenX) && (tileY >= tokenY);
+            if (occludes && tile.depth < depth) {
+                let currentOffset = depth - tile.depth;
+                if(zOffset < currentOffset) zOffset = currentOffset;
+                tile.depth = tile.depth + zOffset + 1;
+                tile.tile.document.sort = (tile.depth / TILE_STRIDE) + 1
+                const updates = [
+                    {
+                        _id: tile.tile.document.id,
+                        sort: tile.tile.document.sort
+                    }
+                ];
+                canvas.scene.updateEmbeddedDocuments('Tile', updates)
+            }
+        }
+
         const clone = cloneTokenSprite(token);
         if (clone) {
             if (!tokenIsVisible) clone.visible = false;
