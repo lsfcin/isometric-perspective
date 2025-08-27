@@ -346,30 +346,39 @@ function assignTileDepths(foregroundTileEntries) {
     }
 }
 
+function occludes(tile, token) {
+    const tokenX = token.document.x;
+    const tokenY = token.document.y;
+    const tileDoc = tile.tile.document;
+    const tileX = tileDoc.x;
+    const tileY = tileDoc.y + tileDoc.height - 0.0001;
+    const occludes = (tileX <= tokenX) && (tileY >= tokenY);
+
+    return occludes;
+}
+
 function computeTokenEntries(foregroundTileEntries) {
     const tokenEntries = [];
     const tokenDepthMap = new Map();
     for (const token of canvas.tokens.placeables) {
         if (!token) continue;
+
         const tokenIsVisible = !!token.visible;
-        const tokenX = token.document.x;
-        const tokenY = token.document.y;
         let minOccludingDepth = Infinity;
         let maxNonOccludingDepth = -Infinity;
         let zOffset = 0;
 
         // First pass, find best depth for token
         for (const tile of foregroundTileEntries) {
-            const tileDoc = tile.tile.document;
-            const tileX = tileDoc.x;
-            const tileY = tileDoc.y + tileDoc.height - 0.0001;
-            const occludes = (tileX <= tokenX) && (tileY >= tokenY);
-            if (occludes) {
-                if (tile.depth < minOccludingDepth) minOccludingDepth = tile.depth;
+            if (occludes(tile, token)) {
+                if (tile.depth < minOccludingDepth) 
+                    minOccludingDepth = tile.depth;
             } else {
-                if (tile.depth > maxNonOccludingDepth) maxNonOccludingDepth = tile.depth;
+                if (tile.depth > maxNonOccludingDepth) 
+                    maxNonOccludingDepth = tile.depth;
             }
         }
+        
         let depth;
         if (minOccludingDepth === Infinity) depth = (maxNonOccludingDepth === -Infinity) ? 0 : (maxNonOccludingDepth + 1);
         else if (maxNonOccludingDepth < minOccludingDepth) depth = (maxNonOccludingDepth + minOccludingDepth) / 2;
@@ -377,11 +386,7 @@ function computeTokenEntries(foregroundTileEntries) {
 
         // Second pass, shift z of tiles wrongfully placed behind token
         for (const tile of foregroundTileEntries) {
-            const tileDoc = tile.tile.document;
-            const tileX = tileDoc.x;
-            const tileY = tileDoc.y + tileDoc.height - 0.0001;
-            const occludes = (tileX <= tokenX) && (tileY >= tokenY);
-            if (occludes && tile.depth < depth) {
+            if (occludes(tile, token) && tile.depth < depth) {
                 let currentOffset = depth - tile.depth;
                 if(zOffset < currentOffset) zOffset = currentOffset;
                 tile.depth = tile.depth + zOffset + 1;
