@@ -2,7 +2,7 @@ import { registerSceneConfig } from './scene.js';
 import { registerTokenConfig } from './token.js';
 import { registerTileConfig } from './tile.js';
 import { registerHUDConfig } from './hud.js';
-import { registerOcclusionConfig } from './occlusion.js';
+import { registerOcclusionConfig } from './foreground.js';
 import { applyIsometricPerspective, applyBackgroundTransformation } from './transform.js';
 import { ISOMETRIC_CONST } from './consts.js';
 import { isoToCartesian, cartesianToIso } from './utils.js';

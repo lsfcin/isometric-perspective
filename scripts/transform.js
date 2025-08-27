@@ -267,7 +267,8 @@ export function updateTokenVisuals(token, elevacao, gridSize, gridDistance) {
 
   // If there's no elevation or the global setting is off, don't create visuals
   const tokenVisuals = game.settings.get(MODULE_ID, "enableTokenVisuals");
-  if (elevacao <= 0 || !tokenVisuals) return;
+  //if (elevacao <= 0 || !tokenVisuals) return;
+  if (!tokenVisuals) return;
 
   // Create a new container
   const container = new PIXI.Container();
@@ -291,7 +292,7 @@ export function updateTokenVisuals(token, elevacao, gridSize, gridDistance) {
 
   // Create a line connecting the ground to the token
   const line = new PIXI.Graphics();
-  line.lineStyle(2, 0x00cccc, 0.5);
+  line.lineStyle(2, 0xffffff, 0.5);
   line.moveTo(              // vai para o centro do token
     token.x + token.h / 2,
     token.y + token.h / 2
