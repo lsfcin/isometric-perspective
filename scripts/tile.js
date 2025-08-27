@@ -512,8 +512,12 @@ function handleUpdateTile(tileDocument, updateData, options, userId) {
   const tile = canvas.tiles.get(tileDocument.id);
   if (!tile) return;
 
+  console.log(userId, updateData, options);
+  console.log("oldW:", tileDocument.width, "oldH:", tileDocument.height)
+
   const scene = tile.scene;
   const isSceneIsometric = scene.getFlag(MODULE_ID, "isometricEnabled");
+  
   // Always reapply transform on any tile update to keep consistent isometric presentation
   requestAnimationFrame(() => applyIsometricTransformation(tile, isSceneIsometric));
 
@@ -529,6 +533,7 @@ function handleUpdateTile(tileDocument, updateData, options, userId) {
       } else {
         updateLinkedWallsPositions(tileDocument);
       }
+
       // If layer changed, refresh controls so highlight updates even without reselecting
       if (updateData?.flags && updateData.flags[MODULE_ID] && ("isoLayer" in updateData.flags[MODULE_ID])) {
         try { if (canvas?.tiles?.controlled?.length) ui.controls.initialize(); } catch { }
@@ -541,6 +546,33 @@ function handleUpdateTile(tileDocument, updateData, options, userId) {
 function handleRefreshTile(tile) {
   const scene = tile.scene;
   const isSceneIsometric = scene.getFlag(MODULE_ID, "isometricEnabled");
+  
+  // If tile's size changes, update art/image offset accordingly
+  if(isSceneIsometric) {
+
+    // Determine dominant axis for resizing for lastest and current dimensions
+    let latestMainAxis = Math.max(tile.document.lastWidth, tile.document.lastHeight);
+    let currentMainAxis = Math.max(tile.document.width, tile.document.height);
+
+    let proportion = currentMainAxis / latestMainAxis;
+
+    if (proportion > 1.001 || proportion < 0.999) {
+      let offX = tile.document.getFlag(MODULE_ID, 'offsetX');
+      let offY = tile.document.getFlag(MODULE_ID, 'offsetY');
+
+      // Round it to have no decimals
+      offX *= proportion;
+      offY *= proportion;
+
+      tile.document.setFlag(MODULE_ID, 'offsetX', Math.round(offX));
+      tile.document.setFlag(MODULE_ID, 'offsetY', Math.round(offY));
+    }
+
+    // Store last known dimensions of current tile
+    tile.document.lastWidth = tile.document.width;
+    tile.document.lastHeight = tile.document.height;
+  }
+
   applyIsometricTransformation(tile, isSceneIsometric);
 }
 
