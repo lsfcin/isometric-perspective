@@ -209,8 +209,10 @@ function updateLayerOpacity(layer) {
                     if (perFlag !== undefined) alpha = alpha * clamp01(perFlag);
                 }
 
-                let activeControl = ui.controls.activeControl;
-                if (activeControl == "walls") {
+                // v13: activeControl is deprecated; prefer ui.controls.control.name
+                let activeControlName;
+                try { activeControlName = ui.controls?.control?.name ?? ui.controls?.activeControl; } catch { activeControlName = undefined; }
+                if (activeControlName === "walls") {
                     if(DEBUG_PRINT) console.log('Walls active, dimming tiles to ease manipulation of attached walls');
                     alpha = Math.min(alpha, 0.6);
                 }
@@ -578,7 +580,8 @@ function applyVisibilityCulling(foregroundTileEntries, tokenEntries) {
 
             const seenBy = getSeenBy(tile);
             const hideOnFog = tile.document.getFlag(MODULE_ID, 'hideOnFog') ?? false;
-            const intersection = seenBy.filter(id => viewerIds.has(id));
+            // Determine if any current viewer has seen this tile before
+            const seenAny = Array.from(seenBy).some(id => viewerIds.has(id));
             const fogExploration = canvas.fog?.fogExploration === true;
 
             // Visible now, render normally without filters
@@ -587,7 +590,7 @@ function applyVisibilityCulling(foregroundTileEntries, tokenEntries) {
                 entry.sprite.visible = true;
             }
             // On fog and fog active, render with fog filter
-            else if (!currentlyVisible && !hideOnFog && fogExploration && intersection.size) {
+            else if (!currentlyVisible && !hideOnFog && fogExploration && seenAny) {
                 entry.sprite.visible = true;
                 entry.sprite.filters = [fogFilter];
             }

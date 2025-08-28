@@ -3,6 +3,19 @@ import { autoApplyPresetForTile, findPresetByImage } from './presets.js';
 import { applyIsometricTransformation } from './transform.js';
 
 export function registerTileConfig() {
+  // Helper to re-render the controls bar targeting the Tiles palette (v13 style), with fallback
+  const rerenderTilesControls = () => {
+    try {
+      if (typeof ui.controls?.render === 'function') {
+  const currentControl = ui.controls?.control?.name || 'tiles';
+  const currentTool = ui.controls?.tool?.name;
+  ui.controls.render(false, { control: currentControl, tool: currentTool });
+      } else if (typeof ui.controls?.initialize === 'function') {
+        // v12 fallback
+  ui.controls.initialize();
+      }
+    } catch { /* no-op */ }
+  };
   Hooks.on("renderTileConfig", handleRenderTileConfig);
 
   Hooks.on("createTile", handleCreateTile);
@@ -11,20 +24,48 @@ export function registerTileConfig() {
   Hooks.on("updateWall", handleUpdateWall);
   Hooks.on('getSceneControlButtons', injectTileLayerButtons);
 
+  // Ensure the controls bar re-renders once after ready so our injected tools appear
+  Hooks.once('ready', () => {
+    try {
+  if (typeof ui.controls?.render === 'function') ui.controls.render(false, { control: ui.controls?.control?.name || 'tiles', tool: ui.controls?.tool?.name });
+      else if (typeof ui.controls?.initialize === 'function') ui.controls.initialize();
+    } catch {}
+  });
+
+  // Modify live SceneControls after it renders to ensure tools are present; re-render once if changed
+  let lastInjectAt = 0;
+  Hooks.on('renderSceneControls', (app, html) => {
+    try {
+      const now = performance.now();
+      if (now - lastInjectAt < 150) return; // avoid rapid loops
+      // Snapshot tool names before injection when possible
+      const list = Array.isArray(app?.controls) ? app.controls : (Array.isArray(app?.controls?.controls) ? app.controls.controls : null);
+      const before = list ? JSON.stringify(list) : null;
+      injectTileLayerButtons(app);
+      const after = list ? JSON.stringify(list) : null;
+      if (before !== after) {
+        lastInjectAt = now;
+        const ctrl = app?.control?.name || ui.controls?.control?.name || 'tiles';
+        const tool = app?.tool?.name || ui.controls?.tool?.name;
+        if (typeof app.render === 'function') app.render(false, { control: ctrl, tool });
+      }
+    } catch {}
+  });
+
   // Rebuild controls when a tile becomes selected OR when all tiles become deselected.
   // This keeps custom buttons visible only while at least one tile is selected, while avoiding
   // flicker during rapid selection switches (deselect old -> select new in same frame).
   Hooks.on('controlTile', (tile, controlled) => {
     try {
       if (controlled) {
-        // Immediate refresh when a tile is selected so buttons appear.
-        ui.controls.initialize();
+    // Immediate refresh when a tile is selected so buttons appear.
+    rerenderTilesControls();
       } else {
         // Defer: if after a short delay no tiles remain controlled, remove buttons.
         setTimeout(() => {
           try {
             const any = Array.from(canvas.tiles?.controlled || []).length > 0;
-            if (!any) ui.controls.initialize();
+      if (!any) rerenderTilesControls();
           } catch { }
         }, 40);
       }
@@ -57,9 +98,35 @@ export function registerTileConfig() {
 let lastTileDesiredBottomLeft = null;
 
 // ---- Toolbar Injection ----
-function injectTileLayerButtons(controls) {
-  const tilesCtl = controls.find(b => b.name === 'tiles');
-  if (!tilesCtl) return;
+function injectTileLayerButtons(controlsArg) {
+  // Foundry v13 may pass a non-array structure here. Normalize to the underlying array if possible.
+  let controls = null;
+  if (Array.isArray(controlsArg)) {
+    controls = controlsArg;
+  } else if (controlsArg && Array.isArray(controlsArg.controls)) {
+    controls = controlsArg.controls;
+  } else if (controlsArg && Array.isArray(controlsArg?.controls?.controls)) {
+    controls = controlsArg.controls.controls;
+  }
+  if (!controls) return; // Unknown structure; do nothing for safety
+
+  // Try to find the Tiles control robustly across versions
+  let tilesCtl = controls.find(b => b && (b.name === 'tiles' || b.name === 'tile' || (typeof b.layer === 'string' && b.layer.toLowerCase() === 'tiles') || /tile/i.test(String(b.title || ''))));
+  if (!tilesCtl) {
+    try { if (DEBUG_PRINT) console.warn('[isometric-perspective] Tiles control not found; creating fallback Isometric Tiles control'); } catch {}
+    tilesCtl = {
+      name: 'isometric-tiles',
+      title: 'Isometric Tiles',
+      layer: 'tiles',
+      icon: 'fa-solid fa-cube',
+      tools: []
+    };
+    controls.push(tilesCtl);
+  }
+  if (!Array.isArray(tilesCtl.tools)) {
+    try { tilesCtl.tools = Array.isArray(tilesCtl.tools) ? tilesCtl.tools : []; } catch { return; }
+  }
+  try { if (DEBUG_PRINT) console.log('[isometric-perspective] Injecting tools into Tiles control. Existing tools:', tilesCtl.tools.map(t => t?.name)); } catch {}
   // Determine isometric scene state
   let isIsoScene = false;
   try { isIsoScene = !!(canvas?.scene?.getFlag(MODULE_ID, 'isometricEnabled') || game.settings.get(MODULE_ID, 'worldIsometricFlag')); } catch { }
@@ -77,7 +144,6 @@ function injectTileLayerButtons(controls) {
   }
 
   const selTiles = Array.from(canvas.tiles?.controlled || []);
-  if (!isIsoScene || !selTiles.length) return; // not iso or no selection => leave native buttons alone
 
   // Determine which layers are represented in the current selection
   let hasForeground = false;
@@ -95,7 +161,7 @@ function injectTileLayerButtons(controls) {
     if (!sel.length) { ui.notifications?.warn('Select at least one tile'); return; }
     const updates = sel.map(t => ({ _id: t.document.id, [`flags.${MODULE_ID}.isoLayer`]: layer }));
     await canvas.scene.updateEmbeddedDocuments('Tile', updates);
-    ui.controls.initialize();
+  rerenderTilesControls();
   };
 
   // Ensure (create or update) layer toggle tools
@@ -114,7 +180,8 @@ function injectTileLayerButtons(controls) {
     toggle: true,
     active: hasBackground,
     onClick: () => applyLayer('background'),
-    button: true
+  button: true,
+  visible: true
   }), hasBackground);
   ensureOrUpdate('iso-layer-foreground', () => ({
     name: 'iso-layer-foreground',
@@ -123,7 +190,8 @@ function injectTileLayerButtons(controls) {
     toggle: true,
     active: hasForeground,
     onClick: () => applyLayer('foreground'),
-    button: true
+  button: true,
+  visible: true
   }), hasForeground);
 
   // Utility buttons: add once
@@ -132,21 +200,24 @@ function injectTileLayerButtons(controls) {
     title: 'Bring Selected Tiles to Front (Sort)',
     icon: 'fa-solid fa-arrow-up-wide-short',
     onClick: () => bringSelectedTilesToFront(),
-    button: true
+  button: true,
+  visible: true
   });
   if (!tilesCtl.tools.some(t => t?.name === 'tile-send-back')) tilesCtl.tools.push({
     name: 'tile-send-back',
     title: 'Send Selected Tiles to Back (Sort)',
     icon: 'fa-solid fa-arrow-down-short-wide',
     onClick: () => sendSelectedTilesToBack(),
-    button: true
+  button: true,
+  visible: true
   });
   if (!tilesCtl.tools.some(t => t?.name === 'dynamic-tile-flip')) tilesCtl.tools.push({
     name: 'dynamic-tile-flip',
     title: 'Flip Selected Tiles',
     icon: 'fa-solid fa-arrows-left-right',
     onClick: () => flipSelectedTiles(),
-    button: true
+  button: true,
+  visible: true
   });
   // Occluding opacity adjustment buttons (appear with selection, below flip)
   async function adjustSelectedOccludingOpacity(delta) {
@@ -175,15 +246,19 @@ function injectTileLayerButtons(controls) {
     title: 'Increase Occlusion Opacity',
     icon: 'fa-solid fa-circle-plus',
     onClick: () => adjustSelectedOccludingOpacity(+0.05),
-    button: true
+  button: true,
+  visible: true
   });
   if (!tilesCtl.tools.some(t => t?.name === 'tile-occ-opacity-dec')) tilesCtl.tools.push({
     name: 'tile-occ-opacity-dec',
     title: 'Decrease Occlusion Opacity',
     icon: 'fa-solid fa-circle-minus',
     onClick: () => adjustSelectedOccludingOpacity(-0.05),
-    button: true
+  button: true,
+  visible: true
   });
+
+  try { if (DEBUG_PRINT) console.log('[isometric-perspective] Tools after injection:', tilesCtl.tools.map(t => t?.name)); } catch {}
 
   // Inject CSS once to make "active" state for our layer buttons look like a mild brightness boost
   // without the default pressed/contour styling.
@@ -198,64 +273,88 @@ function injectTileLayerButtons(controls) {
 }
 
 async function handleRenderTileConfig(app, html, data) {
-  const linkedWallIds = app.object.getFlag(MODULE_ID, 'linkedWallIds') || [];
+  const doc = app.object ?? app.document; // v12 uses object, v13 may use document
+  if (!doc) return;
+  const linkedWallIds = doc.getFlag(MODULE_ID, 'linkedWallIds') || [];
+  const $html = (html && typeof html.find === 'function') ? html : $(html);
   const wallIdsString = Array.isArray(linkedWallIds) ? linkedWallIds.join(', ') : linkedWallIds;
 
   // Carrega o template HTML para a nova aba
-  const isoLayer = app.object.getFlag(MODULE_ID, 'isoLayer') || 'foreground';
+  const isoLayer = doc.getFlag(MODULE_ID, 'isoLayer') || 'foreground';
   const tabHtml = await renderTemplate("modules/isometric-perspective/templates/tile-config.html", {
 
     // Default should be unchecked/false so opening the config doesn't disable isometric tiles
-    isoDisabled: app.object.getFlag(MODULE_ID, 'isoTileDisabled') ?? 0,
-    scale: app.object.getFlag(MODULE_ID, 'scale') ?? 1,
-    isFlipped: app.object.getFlag(MODULE_ID, 'tokenFlipped') ?? false,
-    offsetX: app.object.getFlag(MODULE_ID, 'offsetX') ?? 0,
-    offsetY: app.object.getFlag(MODULE_ID, 'offsetY') ?? 0,
+    isoDisabled: doc.getFlag(MODULE_ID, 'isoTileDisabled') ?? 0,
+    scale: doc.getFlag(MODULE_ID, 'scale') ?? 1,
+    isFlipped: doc.getFlag(MODULE_ID, 'tokenFlipped') ?? false,
+    offsetX: doc.getFlag(MODULE_ID, 'offsetX') ?? 0,
+    offsetY: doc.getFlag(MODULE_ID, 'offsetY') ?? 0,
     linkedWallIds: wallIdsString,
     isForeground: isoLayer !== 'background',
     isBackground: isoLayer === 'background',
-    hideOnFog: app.object.getFlag(MODULE_ID, 'hideOnFog') ?? false,
+    hideOnFog: doc.getFlag(MODULE_ID, 'hideOnFog') ?? false,
 
-    opacityOnOccluding: app.object.getFlag(MODULE_ID, 'OpacityOnOccluding') ?? 0.5,
-    useImagePreset: app.object.getFlag(MODULE_ID, 'useImagePreset') ?? true
+    opacityOnOccluding: doc.getFlag(MODULE_ID, 'OpacityOnOccluding') ?? 0.5,
+    useImagePreset: doc.getFlag(MODULE_ID, 'useImagePreset') ?? true
   });
 
   // Adiciona a nova aba ao menu
-  const tabs = html.find('.tabs:not(.secondary-tabs)');
+  const tabs = $html.find('.tabs:not(.secondary-tabs)');
+  const group = tabs.attr('data-group') || tabs.data('group') || 'primary';
   tabs.append(`<a class="item" data-tab="isometric"><i class="fas fa-cube"></i> ${game.i18n.localize('isometric-perspective.tab_isometric_name')}</a>`);
 
-  // Adiciona o conteúdo da aba após a última aba existente
-  const lastTab = html.find('.tab').last();
-  lastTab.after(tabHtml);
+  // Adiciona o conteúdo da aba após a última aba existente e garante o mesmo data-group
+  const lastTab = $html.find('.tab').last();
+  const $isoTab = $(tabHtml);
+  $isoTab.attr('data-group', group);
+  lastTab.after($isoTab);
 
   // Update the offset fine adjustment button
-  updateAdjustOffsetButton(html);
+  updateAdjustOffsetButton($html);
+
+  // Re-bind Foundry's Tabs controller so the newly added tab link/content become interactive
+  try {
+    const tabsApi = app._tabs?.[0] ?? app.tabs?.[0];
+    if (tabsApi && typeof tabsApi.bind === 'function') tabsApi.bind($html[0]);
+    const $nav = $html.find('.tabs:not(.secondary-tabs)');
+    // Add a dedicated click handler as a fallback to ensure activation works
+    $nav.find('a.item[data-tab="isometric"]').off('click.isometric').on('click.isometric', (ev) => {
+      ev.preventDefault();
+      const t = app._tabs?.[0] ?? app.tabs?.[0];
+      if (t && typeof t.activate === 'function') return t.activate('isometric');
+      // Fallback manual activation
+      $nav.find('a.item').removeClass('active');
+      $(ev.currentTarget).addClass('active');
+      $html.find('.tab').removeClass('active');
+      $html.find('.tab[data-tab="isometric"]').addClass('active');
+    });
+  } catch {}
 
   // Inicializa os valores dos controles
-  const isoTileCheckbox = html.find('input[name="flags.isometric-perspective.isoTileDisabled"]');
-  const flipCheckbox = html.find('input[name="flags.isometric-perspective.tokenFlipped"]');
-  const linkedWallInput = html.find('input[name="flags.isometric-perspective.linkedWallIds"]');
-  const layerSelect = html.find('select[name="flags.isometric-perspective.isoLayer"]');
-  const occOpacitySlider = html.find('input[name="flags.isometric-perspective.OpacityOnOccluding"]');
-  const occOpacityGroup = html.find('.occluding-opacity-group');
-  const occHideOnFogGroup = html.find('.hide-on-fog-group');
-  const hideOnFogCheckbox = html.find('input[name="flags.isometric-perspective.hideOnFog"]');
+  const isoTileCheckbox = $html.find('input[name="flags.isometric-perspective.isoTileDisabled"]');
+  const flipCheckbox = $html.find('input[name="flags.isometric-perspective.tokenFlipped"]');
+  const linkedWallInput = $html.find('input[name="flags.isometric-perspective.linkedWallIds"]');
+  const layerSelect = $html.find('select[name="flags.isometric-perspective.isoLayer"]');
+  const occOpacitySlider = $html.find('input[name="flags.isometric-perspective.OpacityOnOccluding"]');
+  const occOpacityGroup = $html.find('.occluding-opacity-group');
+  const occHideOnFogGroup = $html.find('.hide-on-fog-group');
+  const hideOnFogCheckbox = $html.find('input[name="flags.isometric-perspective.hideOnFog"]');
 
   // Preset checkbox (declare early so we can set default before later code references)
-  const usePresetCheckbox = html.find('input[name="flags.isometric-perspective.useImagePreset"]');
+  const usePresetCheckbox = $html.find('input[name="flags.isometric-perspective.useImagePreset"]');
 
-  isoTileCheckbox.prop("checked", app.object.getFlag(MODULE_ID, "isoTileDisabled"));
-  flipCheckbox.prop("checked", app.object.getFlag(MODULE_ID, "tokenFlipped"));
-  hideOnFogCheckbox.prop("checked", app.object.getFlag(MODULE_ID, "hideOnFog"));
+  isoTileCheckbox.prop("checked", doc.getFlag(MODULE_ID, "isoTileDisabled"));
+  flipCheckbox.prop("checked", doc.getFlag(MODULE_ID, "tokenFlipped"));
+  hideOnFogCheckbox.prop("checked", doc.getFlag(MODULE_ID, "hideOnFog"));
   linkedWallInput.val(wallIdsString);
 
   // Apply defaults for Place Tile flow (flags may be undefined before creation)
-  const existingUsePreset = app.object.getFlag(MODULE_ID, 'useImagePreset');
+  const existingUsePreset = doc.getFlag(MODULE_ID, 'useImagePreset');
   const usePresetDefault = existingUsePreset === undefined ? true : existingUsePreset;
 
   // Initialize occluding opacity slider numeric label
   if (occOpacitySlider.length) {
-    const existing = app.object.getFlag(MODULE_ID, 'OpacityOnOccluding');
+  const existing = doc.getFlag(MODULE_ID, 'OpacityOnOccluding');
     const defaultVal = existing === undefined ? 0.5 : existing;
     occOpacitySlider.val(defaultVal);
     const occOpValSpan = occOpacitySlider.closest('.form-fields').find('.range-value');
@@ -266,19 +365,18 @@ async function handleRenderTileConfig(app, html, data) {
   // On Flip Tile toggle: invert Y offset and swap rectangle width/height; keep Isometric tab active
   flipCheckbox.on('change', async () => {
     try {
-      const doc = app.object;
-      const checked = flipCheckbox.prop('checked');
+  const checked = flipCheckbox.prop('checked');
 
       // Read current document values (authoritative) and compute flip around bottom-left
-      const offsetYEl = html.find('input[name="flags.isometric-perspective.offsetY"]');
-      const widthInput = html.find('input[name="width"]');
-      const heightInput = html.find('input[name="height"]');
-      const yInput = html.find('input[name="y"]');
+  const offsetYEl = $html.find('input[name="flags.isometric-perspective.offsetY"]');
+  const widthInput = $html.find('input[name="width"]');
+  const heightInput = $html.find('input[name="height"]');
+  const yInput = $html.find('input[name="y"]');
 
-      const curOffY = Number(doc.getFlag(MODULE_ID, 'offsetY')) || 0;
-      const w = Number(doc.width) || 0;
-      const h = Number(doc.height) || 0;
-      const yVal = Number(doc.y) || 0;
+  const curOffY = Number(doc.getFlag(MODULE_ID, 'offsetY')) || 0;
+  const w = Number(doc.width) || 0;
+  const h = Number(doc.height) || 0;
+  const yVal = Number(doc.y) || 0;
       const newY = yVal + (h - w);
 
       // Single document update so Foundry rebuilds the native manipulation rectangle immediately
@@ -293,14 +391,14 @@ async function handleRenderTileConfig(app, html, data) {
           }
         }
       };
-      await doc.update(update);
+  await doc.update(update);
 
       // Reflect the updated values in the current form manually
       offsetYEl.val((-curOffY).toFixed(0));
       offsetYEl.trigger('change');
       if (widthInput.length) widthInput.val(h);
       if (heightInput.length) heightInput.val(w);
-      if (yInput.length) yInput.val(Number.isFinite(newY) ? String(newY) : String(doc.y));
+  if (yInput.length) yInput.val(Number.isFinite(newY) ? String(newY) : String(doc.y));
 
       // Ensure the tile remains controlled so its frame is visible in the updated orientation
       requestAnimationFrame(() => {
@@ -311,8 +409,8 @@ async function handleRenderTileConfig(app, html, data) {
       });
 
       // Ensure the Isometric tab remains active without a visible switch
-      const tabs = app._tabs && app._tabs[0];
-      if (tabs) tabs.activate('isometric');
+  const tabs = app._tabs?.[0] ?? app.tabs?.[0];
+  if (tabs && typeof tabs.activate === 'function') tabs.activate('isometric');
     } catch { }
   });
 
@@ -332,7 +430,7 @@ async function handleRenderTileConfig(app, html, data) {
   }
 
   // Live update for Isometric Scale slider label near that slider only
-  const scaleSlider = html.find('input[name="flags.isometric-perspective.scale"]');
+  const scaleSlider = $html.find('input[name="flags.isometric-perspective.scale"]');
   scaleSlider.on('input change', function () {
     const container = $(this).closest('.form-fields');
     container.find('.range-value').text(this.value);
@@ -345,101 +443,101 @@ async function handleRenderTileConfig(app, html, data) {
   });
 
   // Handler para o formulário de submit
-  html.find('form').on('submit', async (event) => {
-    if (html.find('input[name="flags.isometric-perspective.isoTileDisabled"]').prop("checked")) {
-      await app.object.setFlag(MODULE_ID, "isoTileDisabled", true);
+  $html.find('form').on('submit', async (event) => {
+    if ($html.find('input[name="flags.isometric-perspective.isoTileDisabled"]').prop("checked")) {
+      await doc.setFlag(MODULE_ID, "isoTileDisabled", true);
     } else {
-      await app.object.unsetFlag(MODULE_ID, "isoTileDisabled");
+      await doc.unsetFlag(MODULE_ID, "isoTileDisabled");
     }
 
-    if (html.find('input[name="flags.isometric-perspective.tokenFlipped"]').prop("checked")) {
-      await app.object.setFlag(MODULE_ID, "tokenFlipped", true);
+    if ($html.find('input[name="flags.isometric-perspective.tokenFlipped"]').prop("checked")) {
+      await doc.setFlag(MODULE_ID, "tokenFlipped", true);
     } else {
-      await app.object.unsetFlag(MODULE_ID, "tokenFlipped");
+      await doc.unsetFlag(MODULE_ID, "tokenFlipped");
     }
 
     // Persist isoLayer selection
     try {
       const layer = layerSelect.val() === 'background' ? 'background' : 'foreground';
-      await app.object.setFlag(MODULE_ID, 'isoLayer', layer);
+  await doc.setFlag(MODULE_ID, 'isoLayer', layer);
     } catch { }
 
     // Persist per-token occluding opacity only if foreground
     if (occOpacitySlider.length && layerSelect.val() === 'foreground') {
       const v2 = Math.max(0, Math.min(1, parseFloat(occOpacitySlider.val())));
-      await app.object.setFlag(MODULE_ID, 'OpacityOnOccluding', v2);
+  await doc.setFlag(MODULE_ID, 'OpacityOnOccluding', v2);
     } else {
-      try { await app.object.unsetFlag(MODULE_ID, 'OpacityOnOccluding'); } catch { }
+  try { await doc.unsetFlag(MODULE_ID, 'OpacityOnOccluding'); } catch { }
     }
 
-    if (html.find('input[name="flags.isometric-perspective.hideOnFog"]').prop("checked")) {
-      await app.object.setFlag(MODULE_ID, "hideOnFog", true);
+  if ($html.find('input[name="flags.isometric-perspective.hideOnFog"]').prop("checked")) {
+      await doc.setFlag(MODULE_ID, "hideOnFog", true);
     } else {
-      await app.object.unsetFlag(MODULE_ID, "hideOnFog");
+      await doc.unsetFlag(MODULE_ID, "hideOnFog");
     }
 
     // Persist simplified auto preset usage opt-in
-    if (html.find('input[name="flags.isometric-perspective.useImagePreset"]').prop('checked')) {
-      await app.object.setFlag(MODULE_ID, 'useImagePreset', true);
+  if ($html.find('input[name="flags.isometric-perspective.useImagePreset"]').prop('checked')) {
+      await doc.setFlag(MODULE_ID, 'useImagePreset', true);
     } else {
-      await app.object.setFlag(MODULE_ID, 'useImagePreset', false);
+      await doc.setFlag(MODULE_ID, 'useImagePreset', false);
     }
 
     // dynamictile.js linked wall logic
     const wallIdsValue = linkedWallInput.val();
     if (wallIdsValue) {
       const wallIdsArray = wallIdsValue.split(',').map(id => id.trim()).filter(id => id);
-      await app.object.setFlag(MODULE_ID, 'linkedWallIds', wallIdsArray);
+  await doc.setFlag(MODULE_ID, 'linkedWallIds', wallIdsArray);
 
       // Ensure we also have anchors for any manually-entered IDs
-      try { await ensureAnchorsForWalls(app.object, wallIdsArray); }
+  try { await ensureAnchorsForWalls(doc, wallIdsArray); }
       catch (e) { if (DEBUG_PRINT) console.warn('ensureAnchorsForWalls failed', e); }
     } else {
-      await app.object.setFlag(MODULE_ID, 'linkedWallIds', []);
+  await doc.setFlag(MODULE_ID, 'linkedWallIds', []);
     }
 
     // After all persistence, refresh controls so layer button highlight reflects any layer change.
-    try { if (canvas?.tiles?.controlled?.length) ui.controls.initialize(); } catch { }
+  try { if (canvas?.tiles?.controlled?.length) rerenderTilesControls?.(); } catch { }
   });
 
   // dynamictile.js event listeners for the buttons
-  html.find('button.select-wall').click(() => {
-    Object.values(ui.windows).filter(w => w instanceof TileConfig).forEach(j => j.minimize());
+  $html.find('button.select-wall').click(() => {
+  Object.values(ui.windows).filter(w => String(w?.constructor?.name).includes('TileConfig')).forEach(j => j.minimize());
     canvas.walls.activate();
 
     Hooks.once('controlWall', async (wall) => {
       const selectedWallId = wall.id.toString();
-      const currentWallIds = app.object.getFlag(MODULE_ID, 'linkedWallIds') || [];
+      const currentWallIds = doc.getFlag(MODULE_ID, 'linkedWallIds') || [];
       if (!currentWallIds.includes(selectedWallId)) {
         const newWallIds = [...currentWallIds, selectedWallId];
-        await app.object.setFlag(MODULE_ID, 'linkedWallIds', newWallIds);
-        html.find('input[name="flags.isometric-perspective.linkedWallIds"]').val(newWallIds.join(', '));
+        await doc.setFlag(MODULE_ID, 'linkedWallIds', newWallIds);
+  $html.find('input[name="flags.isometric-perspective.linkedWallIds"]').val(newWallIds.join(', '));
 
         // Also store relative anchors so the wall follows the tile on move/resize
         try {
-          const anchors = app.object.getFlag(MODULE_ID, 'linkedWallAnchors') || {};
+          const anchors = doc.getFlag(MODULE_ID, 'linkedWallAnchors') || {};
           const ep = getWallEndpoints(wall);
-          const rel = computeWallAnchors(app.object, ep);
+          const rel = computeWallAnchors(doc, ep);
           anchors[selectedWallId] = rel;
-          await app.object.setFlag(MODULE_ID, 'linkedWallAnchors', anchors);
+          await doc.setFlag(MODULE_ID, 'linkedWallAnchors', anchors);
         } catch (e) { if (DEBUG_PRINT) console.warn('Failed to set linkedWallAnchors', e); }
       }
-      Object.values(ui.windows).filter(w => w instanceof TileConfig).forEach(j => j.maximize());
+      Object.values(ui.windows).filter(w => String(w?.constructor?.name).includes('TileConfig')).forEach(j => j.maximize());
       canvas.tiles.activate();
       requestAnimationFrame(() => {
-        const tabs = app._tabs[0];
-        if (tabs) tabs.activate("isometric");
+        const tabs = app._tabs?.[0] ?? app.tabs?.[0];
+        if (tabs && typeof tabs.activate === 'function') tabs.activate("isometric");
       });
     });
   });
 
-  html.find('button.clear-wall').click(async () => {
-    await app.object.setFlag(MODULE_ID, 'linkedWallIds', []);
-    await app.object.setFlag(MODULE_ID, 'linkedWallAnchors', {});
-    html.find('input[name="flags.isometric-perspective.linkedWallIds"]').val('');
+  $html.find('button.clear-wall').click(async () => {
+    await doc.setFlag(MODULE_ID, 'linkedWallIds', []);
+    await doc.setFlag(MODULE_ID, 'linkedWallAnchors', {});
+    $html.find('input[name="flags.isometric-perspective.linkedWallIds"]').val('');
     requestAnimationFrame(() => {
-      const tabs = app._tabs[0];
-      if (tabs) tabs.activate("isometric");
+      const tabs = app._tabs?.[0] ?? app.tabs?.[0];
+      if (tabs && typeof tabs.activate === 'function') tabs.activate("isometric");
     });
   });
 }
@@ -536,7 +634,7 @@ function handleUpdateTile(tileDocument, updateData, options, userId) {
 
       // If layer changed, refresh controls so highlight updates even without reselecting
       if (updateData?.flags && updateData.flags[MODULE_ID] && ("isoLayer" in updateData.flags[MODULE_ID])) {
-        try { if (canvas?.tiles?.controlled?.length) ui.controls.initialize(); } catch { }
+  try { if (canvas?.tiles?.controlled?.length) rerenderTilesControls(); } catch { }
       }
     } catch (e) { if (DEBUG_PRINT) console.warn('updateLinkedWallsPositions error', e); }
   })();
@@ -577,11 +675,13 @@ function handleRefreshTile(tile) {
 }
 
 
-function updateAdjustOffsetButton(html) {
-  const offsetPointContainer = html.find('.offset-point')[0];
+  function updateAdjustOffsetButton($html) {
+  const offsetPointContainer = $html.find('.offset-point')[0];
 
   // Finds the fine adjustment button on the original HTML
+  if (!offsetPointContainer) return;
   const adjustButton = offsetPointContainer.querySelector('button.fine-adjust');
+  if (!adjustButton) return;
 
   // Configures the fine adjustment button
   adjustButton.style.width = '30px';
@@ -598,8 +698,9 @@ function updateAdjustOffsetButton(html) {
   let originalValueX = 0;
   let originalValueY = 0;
 
-  let offsetXInput = html.find('input[name="flags.isometric-perspective.offsetX"]')[0];
-  let offsetYInput = html.find('input[name="flags.isometric-perspective.offsetY"]')[0];
+  let offsetXInput = $html.find('input[name="flags.isometric-perspective.offsetX"]')[0];
+  let offsetYInput = $html.find('input[name="flags.isometric-perspective.offsetY"]')[0];
+  if (!offsetXInput || !offsetYInput) return;
 
   // Function to apply adjustment
   const applyAdjustment = (e) => {
